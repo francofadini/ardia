@@ -157,7 +157,7 @@ const PinnedTile = memo(function PinnedTile({ tabId, width, sliding, x, y }: { t
     () => (
       <>
         <NextMeetingBadge tabId={tabId} />
-        <ControlledTabMark tabId={tabId} tile />
+        <ControlledTabMark tabId={tabId} variant="tile" />
         {playing || mute ? (
           <View pointerEvents="none" style={{ position: "absolute", bottom: 3, right: 4 }}>
             <Symbol name={mute ? "speaker.slash.fill" : "speaker.wave.2.fill"} size={8} color={theme.textSecondary} style={{ width: 12, height: 10 }} />

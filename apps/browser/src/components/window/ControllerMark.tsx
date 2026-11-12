@@ -1,7 +1,12 @@
-import { View } from "react-native";
+import { Image } from "react-native";
 import { useTheme } from "../ui/theme";
 import { Dot, Symbol } from "../ui";
-import { CLAUDE_MARK } from "./tokens";
+
+const CLAUDE_LOGO = {
+  10: require("../../../assets/claude-mark-10.png"),
+  12: require("../../../assets/claude-mark-12.png"),
+  16: require("../../../assets/claude-mark-16.png"),
+} as const;
 
 export const isClaude = (controller: string) => /^claude\b/i.test(controller);
 
@@ -20,29 +25,6 @@ function TerminalMark({ size }: { size: number }) {
 }
 
 function ClaudeMark({ size }: { size: number }) {
-  const half = size / 2;
-  const width = Math.max(1.5, size * CLAUDE_MARK.rayWidth);
-  const step = 360 / CLAUDE_MARK.rays.length;
-  return (
-    <View accessibilityLabel="Claude" style={{ width: size, height: size }}>
-      {CLAUDE_MARK.rays.map((reach, i) => {
-        const length = half * reach;
-        return (
-          <View
-            key={i}
-            style={{
-              position: "absolute",
-              left: half - width / 2,
-              top: half - length,
-              width,
-              height: length,
-              borderRadius: width / 2,
-              backgroundColor: CLAUDE_MARK.color,
-              transform: [{ translateY: length / 2 }, { rotate: `${i * step}deg` }, { translateY: -length / 2 }],
-            }}
-          />
-        );
-      })}
-    </View>
-  );
+  const drawn = size <= 10 ? 10 : size <= 12 ? 12 : 16;
+  return <Image source={CLAUDE_LOGO[drawn]} accessibilityLabel="Claude" style={{ width: drawn, height: drawn }} />;
 }

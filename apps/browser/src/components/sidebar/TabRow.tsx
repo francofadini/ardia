@@ -129,7 +129,6 @@ export const TabRow = memo(function TabRow({
                 <Symbol name={mute ? "speaker.slash" : "speaker.wave.2"} size={12} color={theme.textTab} style={{ width: 18, height: 16 }} />
               </Pressable>
             )}
-            <ControlledTabMark tabId={tab.id} />
             {renaming ? (
               <RenameField
                 initial={tab.customTitle ?? tab.title}
@@ -140,6 +139,7 @@ export const TabRow = memo(function TabRow({
             ) : (
               <SidebarRowLabel text={title} color={active ? theme.tabSelectedText : theme.textTab} />
             )}
+            <ControlledTabMark tabId={tab.id} />
             <HoverSlot
               hovered={hovered && !renaming}
               reserve="hover"

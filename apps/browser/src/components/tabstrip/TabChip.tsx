@@ -140,7 +140,6 @@ export function TabChip({ tabId, width, tuck, dragged }: { tabId: string; width:
                 <Symbol name={mute ? "speaker.slash" : "speaker.wave.2"} size={11} color={onBand ? palette.icon : theme.textTab} style={{ width: 16, height: 16 }} />
               </Pressable>
             )}
-            <ControlledTabMark tabId={tab.id} />
             <FadeLabel
               text={title}
               fontSize={font.small.fontSize}
@@ -160,7 +159,9 @@ export function TabChip({ tabId, width, tuck, dragged }: { tabId: string; width:
                   tooltip={tuck ? "Hide in Group" : closeControl.tooltip}
                 />
               }
-            />
+            >
+              <ControlledTabMark tabId={tab.id} variant="chip" />
+            </HoverSlot>
           </ItemRow>
         )}
       </TabPressArea>
