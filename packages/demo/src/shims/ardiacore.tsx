@@ -11,7 +11,7 @@ const ENGINE_ONLY: Record<string, string[]> = {
   ArdiaBookmarks: ["tree", "apply", "watch"],
   ArdiaFavicons: ["get", "set"],
   ArdiaTabs: ["lastTabPolicy"],
-  ArdiaEngine: ["batterySaver", "trimMemory", "openTaskManager", "cliControlStatus", "setCliControl", "setCliActiveTab", "tabTargetId"],
+  ArdiaEngine: ["batterySaver", "trimMemory", "openTaskManager", "cliControlStatus", "setCliControl", "setCliActiveTab", "tabTargetId", "setAgentWindows"],
   ArdiaExtensions: ["watchActions", "syncState", "syncApply"],
   ArdiaDownloads: ["settings", "setSettings"],
 };

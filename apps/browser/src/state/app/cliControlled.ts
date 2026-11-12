@@ -74,7 +74,7 @@ function cachedTab(targetId: string): string | null {
   return null;
 }
 
-async function resolveTarget({ targetId, url }: ControlledTarget): Promise<string | null> {
+export async function resolveTarget({ targetId, url }: ControlledTarget): Promise<string | null> {
   const cached = cachedTab(targetId);
   if (cached) return cached;
   const live = Object.values(useBrowser.getState().tabs).filter((t) => !!t.url);

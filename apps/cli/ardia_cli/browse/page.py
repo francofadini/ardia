@@ -16,6 +16,20 @@ RECORD_TEXT_LIMIT = 64 * 1024
 HEADER_VALUE_LIMIT = 8 * 1024
 HEADERS_LIMIT = 64 * 1024
 REQUEST_BYTES = 32 * 1024 * 1024
+INPUT_VISIBILITY_POLL = 1.0
+INPUT_VISIBILITY_PROBE = 2.0
+
+
+class HiddenMidway(BrowseError):
+    def __init__(self, method: str):
+        super().__init__(
+            f"The tab was hidden while {method} was on its way (its window went behind other windows or to another space, "
+            "or the screen locked). Chrome holds the input and delivers it when the tab shows again, so it wasn't retried. "
+            "Show the tab with `ardia browse tab <id> --show`, or keep its window on screen",
+            code="tab_hidden",
+        )
+
+
 HIDDEN_TAB = (
     "This tab is in the background, and Chrome doesn't deliver mouse or keyboard input to a hidden tab. "
     "Show it first with `ardia browse tab <id> --show` (Ardia switches its window to that tab), "
@@ -163,11 +177,33 @@ class Page:
         from ardia_cli.browse.connection import is_mutation
 
         try:
+            if input_event:
+                return await self._send_input(method, params, timeout)
             return await self.browser.send(method, params, self.session_id, timeout)
         except CdpTimeout:
             if input_event or mutation or is_mutation(method):
                 raise OutcomeUnknown(f"`{method}`", f"Ardia didn't answer {method} in {timeout:g}s after it was sent") from None
             raise
+
+    async def _send_input(self, method: str, params: dict | None, timeout: float):
+        sending = asyncio.ensure_future(self.browser.send(method, params, self.session_id, timeout))
+        try:
+            while True:
+                done, _ = await asyncio.wait({sending}, timeout=INPUT_VISIBILITY_POLL)
+                if done:
+                    return sending.result()
+                if await self._went_hidden():
+                    raise HiddenMidway(method)
+        finally:
+            if not sending.done():
+                sending.cancel()
+                await asyncio.gather(sending, return_exceptions=True)
+
+    async def _went_hidden(self) -> bool:
+        try:
+            return bool(await asyncio.wait_for(self.call("() => document.visibilityState === 'hidden'", frame=self.main_frame, read=True), INPUT_VISIBILITY_PROBE))
+        except (asyncio.TimeoutError, BrowseError):
+            return False
 
     async def refresh_frames(self) -> dict:
         tree = (await self.send("Page.getFrameTree"))["frameTree"]

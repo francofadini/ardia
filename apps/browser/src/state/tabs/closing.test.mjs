@@ -149,3 +149,18 @@ test("a pinned item in the profile the window doesn't show keeps nothing open", 
   S().closeTab(only);
   assert.equal(S().windows[w], undefined);
 });
+
+test("with shared tabs, a window Chrome opened closes with its own last tab although it lists the profile's tabs", () => {
+  S().hydrate({});
+  S().updateSettings({ shareTabsAcrossWindows: true });
+  const first = S().createWindow({ url: "https://mine.com/" });
+  S().newTab(first, { url: "https://mine2.com/" });
+  const made = S().createWindow({ url: "https://agent.com/", chromeWindow: "cw-shared" });
+  const agentTab = S().windows[made].tabIds.find((id) => S().tabs[id].url === "https://agent.com/");
+  assert.ok(viewTabIds(S(), made).some((id) => S().tabs[id].url === "https://mine.com/"), "the made window lists the shared tabs");
+  S().closeTab(agentTab);
+  assert.equal(S().windows[made], undefined, "the Chrome-made window closed");
+  assert.ok(S().windows[first], "the user's window stays");
+  assert.equal(S().windows[first].tabIds.length, 2, "and keeps its tabs");
+  S().updateSettings({ shareTabsAcrossWindows: false });
+});

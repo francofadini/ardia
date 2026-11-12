@@ -9,6 +9,7 @@ import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ardia_cli import control
 from ardia_cli.browse import actions, snapshot
 from ardia_cli.browse.errors import BrowseError, ConnectionLost, Gated, OutcomeUnknown, Usage
 from ardia_cli.browse.state import parse_ref, wait_until
@@ -165,17 +166,38 @@ def wants_show(ctx: Ctx, options: dict) -> bool:
     return bool(options.get("show") or ctx.options.get("show") or str(ctx.env.get("AGENT_BROWSER_SHOW_TAB") or "").lower() in ("1", "true", "yes", "on"))
 
 
-async def new_tab(ctx: Ctx, url: str | None, label: str | None = None, window: bool = False, show: bool = False):
+async def open_profile_window(ctx: Ctx, profile: str) -> str:
+    state = ctx.state
+    if state.announcer is None:
+        raise BrowseError("window new --profile needs Ardia's control socket: drop --port, --ws and $ARDIA_CDP_URL", code="no_control")
+    try:
+        opened = await state.announcer.call("openWindow", {"profile": profile, "url": "about:blank"}, timeout=20)
+    except control.MethodError as error:
+        raise BrowseError(error.message, code="unknown_profile" if error.code == "no_window" else "open_failed") from None
+    except control.Unreachable as error:
+        raise BrowseError(str(error), code="no_control") from None
+    target_id = opened["target"]
+    state.windows[target_id] = opened["window"]
+    await state.refresh_targets()
+    return target_id
+
+
+async def new_tab(ctx: Ctx, url: str | None, label: str | None = None, window: bool = False, show: bool = False, profile: str | None = None):
     state = ctx.state
     await state.connect()
-    params = {"url": "about:blank", "background": True}
-    if window:
-        params["newWindow"] = True
-    try:
-        result = await state.browser.send("Target.createTarget", params)
-    except Gated:
-        raise BrowseError("Ardia's policy refused to open a tab for the ardia command") from None
-    target_id = result["targetId"]
+    if window and profile:
+        target_id = await open_profile_window(ctx, profile)
+    else:
+        params = {"url": "about:blank", "background": True}
+        if window:
+            params["newWindow"] = True
+        try:
+            result = await state.browser.send("Target.createTarget", params)
+        except Gated:
+            raise BrowseError("Ardia's policy refused to open a tab for the ardia command") from None
+        target_id = result["targetId"]
+        if window:
+            state.windows[target_id] = None
     state.opened.add(target_id)
     state.target_infos.setdefault(target_id, {"targetId": target_id, "url": "about:blank", "title": "", "type": "page"})
     state.tab_id(target_id)
@@ -907,10 +929,14 @@ async def user_active_tab(state):
 
 @command("window")
 async def cmd_window(ctx: Ctx, argv):
-    _, args = parse(argv)
+    options, args = parse(argv, {"--profile": "value"})
+    if args[:1] == ["close"]:
+        closed = await ctx.state.close_windows()
+        return Result({"closed": closed}, f"✓ Closed {closed} window{'s' if closed != 1 else ''} this session opened")
     if not args or args[0] != "new":
-        raise Usage("Usage: ardia browse window new [url]")
-    page = await new_tab(ctx, args[1] if len(args) > 1 else None, window=True)
+        raise Usage("Usage: ardia browse window new [url] [--profile NAME] | window close")
+    profile = options.get("profile") or ctx.env.get("ARDIA_PROFILE") or None
+    page = await new_tab(ctx, args[1] if len(args) > 1 else None, window=True, profile=profile)
     return Result({"tabId": ctx.state.tab_id(page.target_id), "url": page.url}, page.url or "about:blank")
 
 

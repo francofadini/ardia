@@ -5,6 +5,7 @@ from pathlib import Path
 from ardia_cli.browse.connection import Browser
 from ardia_cli.browse.errors import BrowseError, CdpError, ConnectionLost, StaleRef, Unreachable
 from ardia_cli.browse.page import Page
+from ardia_cli import control
 from ardia_cli.controller import Announcer
 
 PAGE_SCHEMES = ("http:", "https:", "about:", "data:", "blob:", "file:")
@@ -58,6 +59,7 @@ class State:
         self.target_infos: dict[str, dict] = {}
         self.listeners: list = []
         self.controller: str | None = config.get("controller")
+        self.windows: dict[str, str | None] = {}
         self.announcer: Announcer | None = None
 
     @property
@@ -112,6 +114,26 @@ class State:
             await announcer.close()
         if browser is not None:
             await browser.close()
+
+    async def close_windows(self) -> int:
+        closed = 0
+        for target_id, window_id in list(self.windows.items()):
+            if self.announcer is None:
+                break
+            params = {"window": window_id} if window_id else {"target": target_id, "url": (self.target_infos.get(target_id) or {}).get("url")}
+            params["tabs"] = True
+            try:
+                await self.announcer.call("closeWindow", params, timeout=10)
+            except control.MethodError as error:
+                if error.code == "unknown_method":
+                    break
+                continue
+            except control.Unreachable:
+                break
+            closed += 1
+            self.windows.pop(target_id, None)
+            self.forget_target(target_id)
+        return closed
 
     def driven_targets(self) -> list[dict]:
         return [

@@ -119,6 +119,14 @@ bookmark searches) and their fixed page title.
   subscription accepted and runs a decide request only when its `revision` matches one of them, so a request for an
   approved revision never runs an edited program.
 - `answer` `{"decide", "answer"}`: see Protocol.
+- `closeWindow` `{"window"} | {"target", "url"?}, "tabs"?: bool` → `{"ok": true, "window"}`. Closes the window with
+  that id, or the one holding the tab with that CDP target. With `tabs` (the default for a window Chrome opened, as
+  the `window new` of the browse command) it first closes the tabs that started in that window, not the profile's
+  shared copies or pinned tiles, so none of them moves into another window; without it the window closes as Close
+  Window does. `no_window` when there's no such window.
+- `openWindow` `{"profile", "url"?}` → `{"window", "tab", "target"}`. Opens a background window in that profile (name
+  or id, any case) on `url` (http(s); `about:blank` by default) and answers once its tab has a page, with the tab's
+  CDP target (at most 10 s). `no_window` names the profiles when there's no such one.
 - `controlling` `{"targets": [{"targetId", "url"?}], "controller"?}` → `{"ok": true}`. The CDP targets (page
   `targetId`s) this connection's client is driving right now, and the name it goes by ("Claude"; empty or missing is
   "ardia", at most 40 characters). Each call replaces the connection's list; `[]` says it drives none. The app

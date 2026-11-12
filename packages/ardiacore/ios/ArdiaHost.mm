@@ -1,5 +1,6 @@
 #import "ArdiaHostInternal.h"
 #import "ArdiaEarlyWindow.h"
+#import "ArdiaLaunchConfig.h"
 #import "ArdiaServices.h"
 #import "ArdiaNavigationDownloads.h"
 #import "ArdiaStartup.h"
@@ -252,6 +253,49 @@ static void (^gQuitCancelledHandler)(void);
 + (int)chromeTabIdOfTab:(NSString *)tabId {
   ArdiaCoreTab *tab = ardia_host::TabWithAppTabId(tabId);
   return tab ? tab.tabId : -1;
+}
+
+static NSHashTable<NSWindow *> *AgentWindows() {
+  static NSHashTable *windows = [NSHashTable weakObjectsHashTable];
+  return windows;
+}
+
+static void InstallAgentWindowOcclusion() {
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    Method state = class_getInstanceMethod(NSWindow.class, @selector(occlusionState));
+    auto originalState = (NSWindowOcclusionState(*)(id, SEL))method_getImplementation(state);
+    method_setImplementation(state, imp_implementationWithBlock(^NSWindowOcclusionState(NSWindow *window) {
+      NSWindowOcclusionState real = originalState(window, @selector(occlusionState));
+      return [AgentWindows() containsObject:window] ? (real | NSWindowOcclusionStateVisible) : real;
+    }));
+    SEL selector = NSSelectorFromString(@"isOccluded");
+    if (Method occluded = class_getInstanceMethod(NSWindow.class, selector)) {
+      auto originalOccluded = (BOOL(*)(id, SEL))method_getImplementation(occluded);
+      method_setImplementation(occluded, imp_implementationWithBlock(^BOOL(NSWindow *window) {
+        return [AgentWindows() containsObject:window] ? NO : originalOccluded(window, selector);
+      }));
+    }
+  });
+}
+
++ (void)setAgentWindows:(NSArray<NSString *> *)windowIds {
+  InstallAgentWindowOcclusion();
+  NSSet<NSString *> *wanted = [NSSet setWithArray:windowIds];
+  NSMutableSet<NSWindow *> *next = [NSMutableSet set];
+  for (ArdiaWindowController *controller in ArdiaWindowController.all)
+    if (controller.appWindowId && [wanted containsObject:controller.appWindowId] && controller.coreWindow.window)
+      [next addObject:controller.coreWindow.window];
+  NSMutableSet<NSWindow *> *changed = [NSMutableSet setWithArray:AgentWindows().allObjects];
+  [changed unionSet:next];
+  for (NSWindow *window in [changed copy])
+    if ([AgentWindows() containsObject:window] == [next containsObject:window]) [changed removeObject:window];
+  [AgentWindows() removeAllObjects];
+  for (NSWindow *window in next) [AgentWindows() addObject:window];
+  if ([ArdiaLaunchConfig.shared traced:@"visibility"])
+    NSLog(@"[ardiacore-vis] agent windows %@ (%lu found)", [windowIds componentsJoinedByString:@","], (unsigned long)next.count);
+  for (NSWindow *window in changed)
+    [NSNotificationCenter.defaultCenter postNotificationName:NSWindowDidChangeOcclusionStateNotification object:window];
 }
 
 + (void)devToolsTargetIdOfTab:(NSString *)tabId completion:(void (^)(NSString *_Nullable targetId))completion {

@@ -35,6 +35,7 @@ const testGlobals = globalThis as {
   acTestCliControl?: (on: boolean | null) => Promise<CliControlStatus> | undefined;
   acTestCliActive?: (tabId: string | null) => Promise<CliControlStatus> | undefined;
   acTestTabTargets?: Record<string, string>;
+  acTestAgentWindows?: string[];
   acTestUserScripts?: { engine: ExtensionEngine };
 };
 
@@ -314,6 +315,7 @@ const fakeModules = {
       setCliControl: ({ on }) => cliControl(on),
       setCliActiveTab: ({ tabId }) => testGlobals.acTestCliActive?.(tabId) ?? cliStatus(null),
       tabTargetId: ({ tabId }) => testGlobals.acTestTabTargets?.[tabId] ?? null,
+      setAgentWindows: ({ windows }) => ((testGlobals.acTestAgentWindows = windows), true),
     },
     { inputIdleSeconds: () => 3600 },
   ),

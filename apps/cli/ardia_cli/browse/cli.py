@@ -33,7 +33,7 @@ LAUNCH_HINTS = {
     "--download-path": "pass the path to `ardia browse download <sel> <path>` instead",
 }
 VALUE_FLAGS -= set(LAUNCH_HINTS)
-COMMAND_OWNS = {"stream": {"--port"}, "screenshot": {"--annotate"}}
+COMMAND_OWNS = {"stream": {"--port"}, "screenshot": {"--annotate"}, "window": {"--profile"}}
 LOCAL_AUTH = {"save", "list", "show", "delete"}
 
 
@@ -80,7 +80,7 @@ def split_globals(argv: list[str]) -> tuple[dict, list[str]]:
             continue
         if name in LAUNCH_HINTS:
             raise Usage(f"{name} is a launch option agent-browser applies when it starts its own browser; {LAUNCH_HINTS[name]}")
-        if name in LAUNCH_ONLY:
+        if name in LAUNCH_ONLY and name not in owned:
             raise Usage(f"{name} doesn't apply to Ardia: ardia browse drives the browser you're running, so launch options have no effect")
         if command is None and not token.startswith("-"):
             command = token
@@ -362,7 +362,7 @@ def run(argv: list[str]) -> int:
             sock = client.ensure_daemon(dir_fd, key, config)
         finally:
             os.close(dir_fd)
-        env_subset = {name: value for name, value in env.items() if name.startswith("AGENT_BROWSER_")}
+        env_subset = {name: value for name, value in env.items() if name.startswith("AGENT_BROWSER_") or name == "ARDIA_PROFILE"}
         request = {"argv": rest, "options": options, "cwd": os.getcwd(), "env": env_subset, "stdin": stdin}
         controller = controller_name(env)
         if controller:

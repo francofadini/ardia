@@ -366,6 +366,8 @@ class Daemon:
                 try:
                     await self.state.connect()
                     await self.state.refresh_targets()
+                    closed += await self.state.close_windows()
+                    await self.state.refresh_targets()
                     for target_id in list(self.state.opened):
                         if target_id in self.state.target_infos:
                             await self.state.browser.send("Target.closeTarget", {"targetId": target_id})

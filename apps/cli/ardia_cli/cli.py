@@ -139,6 +139,10 @@ def main(argv: list[str] | None = None) -> int:
         from ardia_cli import group_cli
 
         return group_cli.run(args, parser)
+    if args.command == "window":
+        from ardia_cli import window_cli
+
+        return window_cli.run(args, parser)
     if args.command in ("config", "theme"):
         from ardia_cli import config_cli
 

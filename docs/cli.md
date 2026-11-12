@@ -52,6 +52,8 @@ the pins into `pyproject.toml`).
   `docs/automation.md`).
 - `ardia commands` lists the commands `run` takes (see `docs/automation.md`).
 - `ardia windows` lists the windows, their tabs and their groups (see `docs/automation.md`).
+- `ardia window close WINDOW` closes a window, for cleanup (`closeWindow` in `docs/automation.md`): one an agent
+  opened closes with the tabs it opened; any other closes as Close Window does.
 - `ardia group create [--name NAME] [--pinned] [--window ID] TAB…` groups tabs and prints the group's id;
   `ardia group move TAB [--group ID | --top] [--index N]` moves a tab into a group, out to the list, or within
   where it is; `ardia group rename GROUP NAME` renames one (`createGroup`, `moveTab` and `renameGroup` in
@@ -215,8 +217,19 @@ final value).
 `open` without a session tab opens a new background tab in the sidebar (`Target.createTarget` at `about:blank`,
 init scripts registered, then `Page.navigate`); later `open`s navigate the session's tab. The user's tabs are only
 acted on after `tab <id>` or `tab active` (the page shown in Ardia's last focused window, token path only).
-`close` and `tab close` close only tabs this session opened; the guard refuses `Browser.close` on every socket, as in
-`exec`. `tab list` shows the user's tabs too (minus prewarmed `about:blank` pages). `alert` and `beforeunload`
+`close` and `tab close` close only tabs this session opened, and `close` (also `close --all`, which closes every live
+session) closes the windows the session opened with `window new` as well, through the control socket's `closeWindow`,
+taking the tabs it opened there and leaving the profile's shared tabs alone; `window close` does that without ending
+the session. `window new [url] --profile NAME` (or `$ARDIA_PROFILE`) opens the window in that profile, by name or id,
+through `openWindow` (token path only); without it the window takes the profile Chrome picks, the last focused
+window's. The guard refuses `Browser.close` on every socket, as in `exec`.
+
+Input never waits the full 30 s on a tab that's hidden: while an input event waits for Chrome's answer the daemon
+checks the page's visibility every second, and once the page is hidden (its window went behind others, to another
+space, or the screen locked) it stops with `tab_hidden`. Chrome holds that input and delivers it when the tab shows
+again, so it isn't retried. A scroll that finds or makes the page hidden carries on with scripted scrolling instead.
+The app also keeps the windows of driven tabs from counting as occluded (`engine.setAgentWindows`), so their pages
+stay visible and keep taking real input wherever the window is, until the tab stops being driven. `tab list` shows the user's tabs too (minus prewarmed `about:blank` pages). `alert` and `beforeunload`
 dialogs are accepted, as in agent-browser, unless `--no-auto-dialog`. `get cdp-url` refuses any URL that carries a
 token or other credentials, however it was chosen (the token path, `--ws`, `$ARDIA_CDP_URL`); it prints only a
 plain `--port`/`--ws` URL. After `frame <iframe>`, if that iframe goes away, commands fail with `frame_gone` until

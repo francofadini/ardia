@@ -15,6 +15,7 @@ import { useBrowser } from "../browser/store";
 import { NoCommandWindowError, runCommand } from "../commands/commands";
 import { noteSocketRun, noteSocketServing } from "../app/cliControl";
 import { dropControlling, noteControlling, parseAnnouncement } from "../app/cliControlled";
+import { closeWindowOf, openWindowFor, planCloseWindow, planOpenWindow } from "./agentWindows";
 import { errorText } from "../../lib/errors";
 import { minimizedUrl } from "../../lib/urlParts";
 import { automationWindows } from "./automationWindows";
@@ -91,7 +92,7 @@ function replayLaunch(connection: number) {
 
 type Body = { result: unknown } | { error: unknown };
 
-const CHANGING_METHODS: ReadonlySet<string> = new Set(["run", "createGroup", "moveTab", "renameGroup"]);
+const CHANGING_METHODS: ReadonlySet<string> = new Set(["run", "createGroup", "moveTab", "renameGroup", "closeWindow", "openWindow"]);
 
 export function handleControlRequest({ connection, generation: tagged, line }: ControlRequest) {
   const request = parseRequest(line);
@@ -103,18 +104,35 @@ export function handleControlRequest({ connection, generation: tagged, line }: C
     unwrittenRuns.add(ticket);
     noteSocketRun(1);
   }
+  const reply = (body: Body) => {
+    try {
+      send(connection, id, body, ticket);
+    } catch (error) {
+      runWritten([ticket]);
+      throw error;
+    }
+  };
+  const later = method === "closeWindow" ? planCloseWindow(useBrowser.getState(), params) : method === "openWindow" ? planOpenWindow(useBrowser.getState(), params) : null;
+  if (later) {
+    if ("error" in later) return reply(later);
+    void ("profileId" in later ? openWindowFor(later) : closeWindowOf(later))
+      .catch((error: unknown): Body => failure("failed", errorText(error)))
+      .then((body) => {
+        try {
+          reply(body);
+        } catch (error) {
+          console.warn(`[automation] ${method}'s reply failed`, error);
+        }
+      });
+    return;
+  }
   let body: Body;
   try {
     body = answer(connection, method, params);
   } catch (error) {
     body = failure("failed", errorText(error));
   }
-  try {
-    send(connection, id, body, ticket);
-  } catch (error) {
-    runWritten([ticket]);
-    throw error;
-  }
+  reply(body);
 }
 
 function subscribe(connection: number, params: Record<string, unknown>): Body {

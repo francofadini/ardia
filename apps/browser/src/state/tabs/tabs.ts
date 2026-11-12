@@ -64,15 +64,21 @@ export function closingTabs(s: BrowserState, ids: string[], { lastClosesWindow =
   next = unloadPinnedTabs(next, asked);
   const gone = asked.filter((id) => !inPinnedContainer(next, id));
   const closedWindows: string[] = [];
+  const madeClosing = new Set<string>();
   for (const w of Object.values(next.windows)) {
     const view = viewTabIds(next, w.id);
     const shown = view.filter((id) => gone.includes(id));
-    if (!shown.length || !view.every((id) => gone.includes(id) || isAsleep(next.tabs[id]))) continue;
+    const madeByChrome = w.kind !== "small" && !!w.chromeWindow;
+    const idle = (id: string) => isAsleep(next.tabs[id]) || (madeByChrome && next.tabs[id]?.page.kind === "frozen");
+    if (!shown.length || !view.every((id) => gone.includes(id) || idle(id))) continue;
     const keepsWindow = !lastClosesWindow || leavesEmptyWindow(shown.length > 1 ? removeTabs(next, shown.slice(1), false) : next, shown[0]!);
     if (keepsWindow) next = withNewTab(next, w.id)[0];
-    else closedWindows.push(w.id);
+    else {
+      closedWindows.push(w.id);
+      if (madeByChrome) madeClosing.add(w.id);
+    }
   }
-  const removed = gone.filter((id) => !closedWindows.includes(next.tabs[id]!.windowId));
+  const removed = gone.filter((id) => !closedWindows.includes(next.tabs[id]!.windowId) || madeClosing.has(next.tabs[id]!.windowId));
   return [removeTabs(next, removed, true), closedWindows];
 }
 

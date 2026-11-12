@@ -63,6 +63,11 @@ class Announcer:
                 self.wanted = self.sent
                 return
 
+    async def call(self, method: str, params: dict, timeout: float = control.CALL_TIMEOUT):
+        if self.connection is None or self.connection.closed:
+            self.connection = await control.open_control(self.data_root)
+        return await self.connection.call(method, params, timeout)
+
     async def start(self, controller: str | None):
         self.update([], controller)
         if self.task is not None:

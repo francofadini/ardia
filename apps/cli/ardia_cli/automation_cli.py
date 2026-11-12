@@ -97,9 +97,10 @@ def add_parsers(commands, formatter):
     windows = data_dir(commands.add_parser("windows", help="list Ardia's windows and their tabs", description="List Ardia's windows and their tabs (private windows are never included)."))
     windows.add_argument("--json", action="store_true", help="print JSON")
 
-    from ardia_cli import group_cli
+    from ardia_cli import group_cli, window_cli
 
     group_cli.add_parser(commands, formatter, data_dir)
+    window_cli.add_parser(commands, formatter, data_dir)
 
     events = data_dir(commands.add_parser("events", help="print events as they happen", description=EVENTS_DESCRIPTION, formatter_class=formatter))
     events.add_argument("events", nargs="*", metavar="EVENT", help="event names (default: all)")

@@ -5,6 +5,7 @@ import {
   onCliControlChanged,
   onCliInstallLine,
   setCliActiveTab,
+  setAgentWindows,
   setCliControl,
   type CliControlStatus,
   type CliInstallResult,
@@ -161,6 +162,22 @@ function updateTabs(on: boolean) {
 useCli.subscribe(updateIndicator);
 onControlledChanged(() => updateIndicator(useCli.getState()));
 
+let sentAgentWindows = "";
+
+export function agentWindowsOf(tabs: ControlledTabs, all: BrowserState["tabs"]): string[] {
+  return [...new Set(Object.keys(tabs).map((id) => all[id]?.windowId).filter((id): id is string => !!id))].sort();
+}
+
+function pushAgentWindows() {
+  const windows = agentWindowsOf(useCliIndicator.getState().tabs, useBrowser.getState().tabs);
+  const key = windows.join("\u0001");
+  if (key === sentAgentWindows) return;
+  sentAgentWindows = key;
+  void setAgentWindows(windows).catch(() => {});
+}
+
+useCliIndicator.subscribe(pushAgentWindows);
+
 export function noteSocketRun(delta: 1 | -1) {
   socketRuns = Math.max(0, socketRuns + delta);
   updateIndicator(useCli.getState());
@@ -281,6 +298,7 @@ export function startCliControl() {
   useBrowser.subscribe(() => {
     sync();
     pushActiveTab();
+    pushAgentWindows();
   });
   useCli.subscribe(pushActiveTab);
   usePages.subscribe(pushActiveTab);

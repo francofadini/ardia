@@ -3,6 +3,7 @@ import json
 import random
 
 from ardia_cli.browse.errors import BrowseError, Gated, OutcomeUnknown
+from ardia_cli.browse.page import HiddenMidway
 
 SCROLL_DEFAULT = 300
 DELIVERY_TIMEOUT = 1.5
@@ -75,6 +76,7 @@ class ScrollDriver:
         self.frame = frame
         self.scripted = scripted
         self.element = element
+        self.wheels = 0
 
     async def _execute_command(self, command):
         from pydoll.constants import Scripts
@@ -90,6 +92,8 @@ class ScrollDriver:
         if method == "Input.dispatchMouseEvent":
             params = dict(params)
             params["x"], params["y"] = int(self.point[0]), int(self.point[1])
+            if not self.scripted and params.get("type") == "mouseWheel" and await self.page.hidden():
+                self.scripted = True
             if self.scripted:
                 dx, dy = params.get("deltaX") or 0, params.get("deltaY") or 0
                 if self.element is not None:
@@ -97,7 +101,15 @@ class ScrollDriver:
                 else:
                     await self.page.call("(x, y) => scrollBy(x, y)", dx, dy, frame=self.frame)
                 return {"result": {}}
-        await self.page.send(method, params, input_event=True)
+        try:
+            await self.page.send(method, params, input_event=True)
+        except HiddenMidway:
+            if params.get("type") != "mouseWheel":
+                raise
+            self.scripted = True
+            return {"result": {}}
+        if params.get("type") == "mouseWheel":
+            self.wheels += 1
         return {"result": {}}
 
 
@@ -135,23 +147,22 @@ async def scroll_wheel(page, distance: float, vertical: bool, humanize: bool, po
     if scripted:
         pass
     elif humanize and abs(mouse._position[0] - point[0]) + abs(mouse._position[1] - point[1]) > 2:
-        await mouse.move(point[0], point[1], humanize=True)
+        try:
+            await mouse.move(point[0], point[1], humanize=True)
+        except HiddenMidway:
+            scripted = True
     elif not humanize:
         mouse._position = point
     if distance == 0:
-        return
+        return 0
+    driver = ScrollDriver(page, point, frame or page.main_frame, scripted, element)
     if humanize:
         position = (ScrollPosition.DOWN if distance > 0 else ScrollPosition.UP) if vertical else (ScrollPosition.RIGHT if distance > 0 else ScrollPosition.LEFT)
-        await Scroll(ScrollDriver(page, point, frame or page.main_frame, scripted, element)).by(position, abs(distance), humanize=True)
-        return
-    if scripted:
-        await ScrollDriver(page, point, frame or page.main_frame, True, element)._execute_command({
-            "method": "Input.dispatchMouseEvent", "params": {"type": "mouseWheel", "deltaX": 0 if vertical else int(distance), "deltaY": int(distance) if vertical else 0}})
-        return
-    await page.send("Input.dispatchMouseEvent", {
-        "type": "mouseWheel", "x": int(point[0]), "y": int(point[1]),
-        "deltaX": 0 if vertical else int(distance), "deltaY": int(distance) if vertical else 0,
-    }, input_event=True)
+        await Scroll(driver).by(position, abs(distance), humanize=True)
+        return driver.wheels
+    await driver._execute_command({
+        "method": "Input.dispatchMouseEvent", "params": {"type": "mouseWheel", "deltaX": 0 if vertical else int(distance), "deltaY": int(distance) if vertical else 0}})
+    return driver.wheels
 
 
 def _outside(r, vp, margin=4) -> bool:
@@ -391,5 +402,10 @@ async def scroll(page, direction: str, amount: float, humanize: bool, selector_e
         point = (ox + r["x"] + r["width"] * random.uniform(0.35, 0.65), oy + r["y"] + r["height"] * random.uniform(0.35, 0.65))
         frame = selector_element.frame
     needs = {} if distance == 0 or await page.hidden() else {"wheel": 1}
-    await expect_input(page, frame, lambda: page.input.gesture("scroll", lambda: scroll_wheel(page, distance, vertical, humanize, point, frame, selector_element), allow_hidden=True),
+
+    async def wheel():
+        if not await scroll_wheel(page, distance, vertical, humanize, point, frame, selector_element):
+            needs.clear()
+
+    await expect_input(page, frame, lambda: page.input.gesture("scroll", wheel, allow_hidden=True),
                        needs, "The scroll")
