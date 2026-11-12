@@ -200,10 +200,10 @@ function GroupHeader({ groupId, windowId, collapsed, open }: { groupId: string; 
         >
           {({ pressed }) => (
             <SidebarRowSurface fill={dropInto || pressed ? theme.tabPressed : hovered ? tokens.groupHeaderHover : ink.clear} cornerRadius={GROUP_INNER_RADIUS}>
-              {group.icon || firstTab ? (
-                <TabIcon url={firstTab?.url ?? ""} favicon={firstTab?.favicon} icon={group.icon ?? firstTab?.customIcon} profileId={firstTab?.profileId} />
+              {group.icon ? (
+                <TabIcon url={firstTab?.url ?? ""} favicon={firstTab?.favicon} icon={group.icon} profileId={firstTab?.profileId} />
               ) : (
-                <View style={{ width: 16 }} />
+                <Symbol name="folder" size={13} weight="medium" color={theme.textSecondary} style={{ width: 16, height: 16 }} />
               )}
               {renaming ? (
                 <RenameField
