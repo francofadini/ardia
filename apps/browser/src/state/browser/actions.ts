@@ -43,7 +43,7 @@ export async function closeTab(tabId: string) {
   const w = tab && s.windows[tab.windowId];
   if (!tab || !w) return;
   const last = closesWindow(s, tabId) && !leavesEmptyWindow(s, tabId);
-  if (last && s.settings.warnBeforeClosingLastTab && w.kind !== "private") {
+  if (last && s.settings.warnBeforeClosingLastTab && w.kind !== "private" && !(w.kind === "main" && w.chromeWindow)) {
     const { confirmed, suppressed } = await confirm({ ...closeWindowDialog(w.id), suppression: "Don’t ask me again", windowId: w.id });
     if (suppressed) store().updateSettings({ warnBeforeClosingLastTab: false });
     if (!confirmed) return;

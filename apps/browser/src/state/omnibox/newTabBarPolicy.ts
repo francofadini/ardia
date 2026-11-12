@@ -26,7 +26,7 @@ export const setLastTabKeepsWindow = (keeps: boolean) => void (lastTabKeepsWindo
 export function leavesEmptyWindow(s: BrowserState, id: string): boolean {
   const tab = s.tabs[id];
   const w = tab && s.windows[tab.windowId];
-  if (!w || w.kind === "small") return false;
+  if (!w || w.kind === "small" || w.chromeWindow) return false;
   if (lastTabKeepsWindow) return closesWindow(s, id);
   if (!isEmptyCardTab(s, tab) && pinnedItemsRemain(s, id)) return closesWindow(s, id);
   if (!NEW_TAB_BAR_POLICY.closingLastTabLeavesEmptyWindow || !newTabOpensBar(s)) return false;

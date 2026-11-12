@@ -103,6 +103,25 @@ test("⌘W on the empty window left beside pinned items closes the window as bef
   assert.equal(S().windows[w], undefined);
 });
 
+test("a window Chrome opened (an ardia browse window, an extension's) closes with its last tab, pinned items or not", () => {
+  S().hydrate({});
+  const first = S().createWindow({ url: "https://pinned.com/" });
+  S().pinTabs([S().windows[first].tabIds[0]], true);
+  const made = S().createWindow({ url: "https://agent.com/", chromeWindow: "cw-1" });
+  const agentTab = S().windows[made].tabIds.find((id) => S().tabs[id].url === "https://agent.com/");
+  assert.ok(viewTabIds(S(), made).some((id) => S().tabs[id].pin), "the profile's tile shows in the new window");
+  S().closeTab(agentTab);
+  assert.equal(S().windows[made], undefined, "the Chrome-made window closed");
+  assert.ok(S().windows[first], "the other window stays");
+});
+
+test("closing the last tab of a window Chrome opened asks nothing, so a declined confirmation can't keep it", async () => {
+  S().hydrate({});
+  const made = S().createWindow({ url: "https://agent.com/", chromeWindow: "cw-2" });
+  await closeTab(S().windows[made].tabIds[0]);
+  assert.equal(S().windows[made], undefined);
+});
+
 test("an empty pinned group alone keeps the window on its last tab's close", () => {
   const { w, ids: [only] } = windowWith("only");
   const group = { id: "pinned-empty", windowId: w, profileId: S().windows[w].profileId, name: "Empty", icon: null, color: null, collapsed: false, pinned: true, tabIds: [], createdAt: 0 };
