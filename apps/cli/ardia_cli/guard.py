@@ -1,4 +1,6 @@
 import json
+import re
+from urllib.parse import urlsplit
 
 FORBIDDEN_METHODS = frozenset({"Browser.close", "Browser.crash", "Browser.crashGpuProcess"})
 
@@ -31,11 +33,19 @@ def check_message(message) -> None:
         check_command(command)
 
 
+page_socket_listeners: list = []
+_PAGE_PATH = re.compile(r"^/devtools/page/([^/]+)$")
+
+
 async def direct_connect(uri, **kwargs):
     import websockets
 
     kwargs["proxy"] = None
     connection = await websockets.connect(uri, **kwargs)
+    page = _PAGE_PATH.match(urlsplit(uri).path)
+    if page:
+        for listener in list(page_socket_listeners):
+            listener(page.group(1))
     send = connection.send
 
     async def guarded_send(message, *args, **send_kwargs):

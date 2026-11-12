@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from ardia_cli.browse import paths
+from ardia_cli.controller import controller_name
 from ardia_cli.browse.errors import BrowseError, Usage
 
 VALUE_FLAGS = {
@@ -362,7 +363,11 @@ def run(argv: list[str]) -> int:
         finally:
             os.close(dir_fd)
         env_subset = {name: value for name, value in env.items() if name.startswith("AGENT_BROWSER_")}
-        answer = client.request(sock, {"argv": rest, "options": options, "cwd": os.getcwd(), "env": env_subset, "stdin": stdin})
+        request = {"argv": rest, "options": options, "cwd": os.getcwd(), "env": env_subset, "stdin": stdin}
+        controller = controller_name(env)
+        if controller:
+            request["controller"] = controller
+        answer = client.request(sock, request)
     except BrowseError as error:
         return print_error(error, as_json)
     except endpoints.EndpointError as error:

@@ -254,6 +254,18 @@ static void (^gQuitCancelledHandler)(void);
   return tab ? tab.tabId : -1;
 }
 
++ (void)devToolsTargetIdOfTab:(NSString *)tabId completion:(void (^)(NSString *_Nullable targetId))completion {
+  ArdiaCoreTab *tab = ardia_host::TabWithAppTabId(tabId);
+  if (!tab || tab.closed) return completion(nil);
+  [tab devToolsCall:@"Target.getTargetInfo"
+             params:@{}
+            timeout:1.0
+         completion:^(NSDictionary *result, NSString *) {
+           NSDictionary *info = [result[@"targetInfo"] isKindOfClass:NSDictionary.class] ? result[@"targetInfo"] : nil;
+           completion([info[@"targetId"] isKindOfClass:NSString.class] ? info[@"targetId"] : nil);
+         }];
+}
+
 + (void)resolvePermission:(NSString *)requestId result:(NSString *)result remember:(BOOL)remember {
   [ArdiaCoreEngine resolvePermission:requestId result:result remember:remember];
 }

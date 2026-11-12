@@ -119,6 +119,12 @@ bookmark searches) and their fixed page title.
   subscription accepted and runs a decide request only when its `revision` matches one of them, so a request for an
   approved revision never runs an edited program.
 - `answer` `{"decide", "answer"}`: see Protocol.
+- `controlling` `{"targets": [{"targetId", "url"?}], "controller"?}` → `{"ok": true}`. The CDP targets (page
+  `targetId`s) this connection's client is driving right now, and the name it goes by ("Claude"; empty or missing is
+  "ardia", at most 40 characters). Each call replaces the connection's list; `[]` says it drives none. The app
+  matches each target to its tab (`engine.tabTargetId`: `Target.getTargetInfo` on the tabs whose URL matches,
+  ignoring the fragment, then on the rest it hasn't asked yet; answers are kept per tab), and those tabs show the
+  pill and the sidebar mark (The pill, below). Closing the connection takes its tabs back. At most 64 targets.
 
 ### Which commands
 
@@ -324,10 +330,15 @@ an aborted query is cancelled (the program is killed). The program prints `[{"ti
 
 ### The pill
 
-`run` shows the "ardia is controlling Ardia" pill like a CDP connection does: it counts as active from the moment
-the request arrives until its reply is written, then the usual 3 s hold. The indicator combines CDP connections and
-socket runs; neither overwrites the other. `hello`, `commands`, `windows` and `subscribe` don't show it, so a hooks
-runner connected all day doesn't keep it up. Stop hides it at once.
+Tabs a client announced with `controlling` show "<controller> is controlling this tab" at the bottom of their
+pane, and a small mark of the controller (Claude's orange starburst for "Claude", the terminal glyph otherwise)
+beside their title in the sidebar, the top strip and on their pinned tile, in every window that lists them. A tab
+stays marked 3 s after it leaves the list or its connection closes. `run` (and a CDP connection while no control
+socket connection has announced anything, as an older `ardia` or another CDP client) shows the window-wide "ardia is
+controlling Ardia" pill instead, only in the focused window: a run counts as active from the moment the request
+arrives until its reply is written, then the usual 3 s hold. `hello`, `commands`, `windows` and `subscribe` don't
+show it, so a hooks runner connected all day doesn't keep it up. Stop hides everything at once
+(`state/app/cliControl.ts`, `state/app/cliControlled.ts`).
 
 ## The ardia command
 

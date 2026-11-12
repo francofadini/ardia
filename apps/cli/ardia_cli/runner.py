@@ -7,8 +7,10 @@ import linecache
 import signal
 import sys
 import traceback
+from pathlib import Path
 
 from ardia_cli import guard
+from ardia_cli.controller import Announcer, controller_name
 from ardia_cli.endpoint import NOT_REACHABLE, Endpoint, EndpointError
 from ardia_cli.redact import redact
 
@@ -99,10 +101,23 @@ class Session:
         self.browser.stop = _refuse_stop_async
         self._tabs: dict[str, object] = {}
         self.opened: list = []
+        self._urls: dict[str, str] = {}
+        self._driven: list[str] = []
+        self.announcer = None if endpoint.explicit else Announcer(Path(endpoint.source).parent.parent)
+        guard.page_socket_listeners.append(self._page_socket_opened)
+
+    def _page_socket_opened(self, target_id: str):
+        if self.announcer is None or target_id in self._driven:
+            return
+        self._driven.append(target_id)
+        targets = [{"targetId": target, "url": self._urls.get(target)} for target in self._driven]
+        self.announcer.update(targets, controller_name())
 
     async def connect(self):
         from pydoll.exceptions import NoValidTabFound
 
+        if self.announcer is not None:
+            await self.announcer.start(controller_name())
         try:
             await asyncio.wait_for(self.browser.connect(self.endpoint.ws), CONNECT_TIMEOUT)
         except NoValidTabFound:
@@ -128,6 +143,8 @@ class Session:
         from pydoll.browser.tab import Tab
 
         target_id = target["targetId"]
+        if target.get("url"):
+            self._urls[target_id] = target["url"]
         tab = self._tabs.get(target_id) or self.browser._tabs_opened.get(target_id)
         if tab is None:
             tab = Tab(self.browser, **self.browser._get_tab_kwargs(target_id))
@@ -215,6 +232,10 @@ class Session:
         return next((tab for tab in tabs if id(tab) in visible), NoTab(NO_VISIBLE_TAB))
 
     async def close(self):
+        if self._page_socket_opened in guard.page_socket_listeners:
+            guard.page_socket_listeners.remove(self._page_socket_opened)
+        if self.announcer is not None:
+            await self.announcer.close()
         handlers = {id(tab._connection_handler): tab._connection_handler for tab in self._tabs.values()}
         for tab in list(self.browser._tabs_opened.values()):
             handlers[id(tab._connection_handler)] = tab._connection_handler

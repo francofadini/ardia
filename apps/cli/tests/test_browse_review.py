@@ -45,6 +45,7 @@ class DeadLinkIsTerminal(unittest.TestCase):
     def test_our_own_idle_disconnect_still_reconnects(self):
         class Endpoint:
             instance = "same"
+            explicit = True
 
         state = State({"session": "t"}, lambda: Endpoint())
         state.instance = "same"

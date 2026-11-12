@@ -4,11 +4,19 @@
 download, not part of the app bundle. The app ships `install.sh`, and runs it when the user opts in during onboarding
 or in Settings ("Let the ardia command control Ardia").
 
-While it's connected, a pill floats over the bottom centre of the page ("ardia is controlling Ardia · Stop"; Stop turns
-the setting off). It overlays the page and never resizes it. It shows at the first connection and stays 3 s after the
-last one closes, so a burst of commands shows one steady pill; turning the setting off hides it at once. One per
-window: the focused pane of a split, the full screen page, or the Peek while one is open
-(`apps/browser/src/components/window/CliControlPill.tsx`, `useCliIndicator` in `state/app/cliControl.ts`).
+Only the tabs it drives are marked. The `browse` and `exec` commands tell the app which CDP targets they're attached
+to over the control socket (`controlling`, `docs/automation.md`): the browse daemon after each command and each main
+frame navigation, for the pages it attached to, until its idle disconnect; `exec` for each page socket it opens,
+until it ends. Each of those tabs gets a pill over the bottom centre of its pane ("Claude is controlling this tab ·
+Stop"; Stop turns the setting off) and a mark beside its title in the sidebar, the top strip and its pinned tile, in
+every window. The pill overlays the page and never resizes it, shows in every pane (split, full screen, Peek) whose
+tab is driven, and stays 3 s after the tab stops being driven, so a burst of commands shows one steady pill; turning
+the setting off hides it at once. The name is `ARDIA_CONTROLLER` (trimmed, at most 40 characters), else "Claude"
+when `CLAUDECODE=1` (Claude Code sets it), else "ardia"; "Claude" shows Claude's mark, anything else the terminal
+glyph. A CDP client that never announces (an older `ardia`, a plain CDP library on the token) keeps the old
+window-wide "ardia is controlling Ardia" pill, in the focused window only
+(`apps/browser/src/components/window/CliControlPill.tsx`, `components/sidebar/ControlledTabMark.tsx`,
+`state/app/cliControl.ts`, `state/app/cliControlled.ts`, `ardia_cli/controller.py`).
 
 Code: `apps/cli` (`ardia_cli`, `install.sh`, `scripts/build.sh`). Dependencies are pinned with hashes in
 `apps/cli/requirements.lock` (regenerate with `uv pip compile requirements.in --python-version 3.13

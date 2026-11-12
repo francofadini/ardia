@@ -12,4 +12,5 @@ export const onCliInstallLine = (listener: (line: string) => void) => Cli.addLis
 export const setCliControl = (on: boolean) => call("engine.setCliControl", { on });
 export const setCliActiveTab = (tabId: string | null) => call("engine.setCliActiveTab", { tabId });
 export const cliControlStatus = () => call("engine.cliControlStatus");
+export const tabTargetId = (tabId: string) => call("engine.tabTargetId", { tabId });
 export const onCliControlChanged = (listener: (status: CliControlStatus) => void) => on("engine.cliControl", listener);

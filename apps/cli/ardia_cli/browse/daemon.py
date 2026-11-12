@@ -325,6 +325,8 @@ class Daemon:
             self.state.auto_dialog = False
         if options.get("pin_tab") is not None:
             self.state.pin_tab = bool(options["pin_tab"])
+        if request.get("controller"):
+            self.state.controller = str(request["controller"])
         if self.stopping:
             return self.refuse_closing(options, name)
         if name == "close":
@@ -348,6 +350,8 @@ class Daemon:
             except Exception as error:
                 log.exception("command %s crashed", name)
                 return render(options, error=BrowseError(f"{name} failed: {type(error).__name__}: {error}"), name=name)
+            finally:
+                self.state.announce()
             return render(options, result=result, name=name)
 
     async def close(self, ctx):

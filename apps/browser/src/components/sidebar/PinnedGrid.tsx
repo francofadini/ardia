@@ -20,6 +20,7 @@ import { FolderDropRing, TileFace, useSlotPosition } from "./TileFace";
 import { folderIdOfCell } from "../../state/pins/tileFolders";
 import { useSidebarTokens } from "./tokens";
 import { TabPressArea } from "./TabPressArea";
+import { ControlledTabMark } from "./ControlledTabMark";
 import { entryKey } from "../../state/sidebar/entryKey";
 
 export const PinnedGrid = memo(function PinnedGrid({ tabs, innerWidth, flush = false }: { tabs: string[]; innerWidth: number; flush?: boolean }) {
@@ -156,6 +157,7 @@ const PinnedTile = memo(function PinnedTile({ tabId, width, sliding, x, y }: { t
     () => (
       <>
         <NextMeetingBadge tabId={tabId} />
+        <ControlledTabMark tabId={tabId} tile />
         {playing || mute ? (
           <View pointerEvents="none" style={{ position: "absolute", bottom: 3, right: 4 }}>
             <Symbol name={mute ? "speaker.slash.fill" : "speaker.wave.2.fill"} size={8} color={theme.textSecondary} style={{ width: 12, height: 10 }} />

@@ -143,6 +143,7 @@ export const TabPane = memo(function TabPane({
                 statusStyle={autoLayout ? motion.bottomStyle : undefined}
                 popovers={popovers}
                 cliPill={!peekShown && (fullscreen || focused || !inSplit)}
+                cliCovered={peekShown}
               />
             )}
           </View>

@@ -21,6 +21,8 @@ import { afterFirstWindow } from "../../lib/afterFirstWindow";
 import { parseSaved, unchanged, versionedJson, type Migrations } from "../../lib/savedDocument";
 import { errorText } from "../../lib/errors";
 import { focusedWindowOf } from "../windows/ui";
+import { familyKeyOf } from "../browser/model";
+import { controlledTabs, isAnnouncing, onControlledChanged, type ControlledTabs } from "./cliControlled";
 
 const DOC = "ardia-cli.json";
 const DOC_VERSION = 1;
@@ -28,6 +30,7 @@ const DOC_MIGRATIONS: Migrations = { 0: unchanged };
 const SCHEMA_FIELD = "schemaVersion";
 const UPGRADE_DELAY_MS = 8000;
 const INDICATOR_HOLD_MS = 3000;
+const UNANNOUNCED_GRACE_MS = 1500;
 
 type Saved = { binPath?: string | null; version?: string | null; error?: string | null; at?: number };
 
@@ -69,30 +72,94 @@ export const useCli = create<CliState>()(() => ({
   error: saved.error ?? null,
 }));
 
-export const useCliIndicator = create<{ shown: boolean }>()(() => ({ shown: false }));
+export type CliIndicator = { shown: boolean; tabs: ControlledTabs; families: ControlledTabs };
+
+export const useCliIndicator = create<CliIndicator>()(() => ({ shown: false, tabs: {}, families: {} }));
+
+function familiesOf(tabs: ControlledTabs): ControlledTabs {
+  const all = useBrowser.getState().tabs;
+  const out: Record<string, string> = {};
+  for (const [tabId, controller] of Object.entries(tabs)) {
+    const tab = all[tabId];
+    if (tab) out[familyKeyOf(tab)] = controller;
+  }
+  return out;
+}
+
+export function useTabController(tabId: string): string | null {
+  const family = useBrowser((s) => {
+    const tab = s.tabs[tabId];
+    return tab ? familyKeyOf(tab) : null;
+  });
+  return useCliIndicator((s) => s.tabs[tabId] ?? (family ? s.families[family] : undefined) ?? null);
+}
 
 let indicatorHide: ReturnType<typeof setTimeout> | null = null;
+let unannouncedCheck: ReturnType<typeof setTimeout> | null = null;
+let unannouncedSince: number | null = null;
+const tabHides = new Map<string, ReturnType<typeof setTimeout>>();
 let socketRuns = 0;
 let socketServing = false;
 
-function updateIndicator({ server }: CliState) {
-  const cdpOn = server?.state === "on";
-  const on = cdpOn || socketServing;
-  const connected = on && (cdpOn ? server.connections : 0) + socketRuns > 0;
+const controlOn = ({ server }: CliState) => server?.state === "on" || socketServing;
+
+function updateIndicator(cli: CliState) {
+  const server = cli.server;
+  const on = controlOn(cli);
+  const unannounced = server?.state === "on" && server.connections > 0 && !isAnnouncing();
+  if (!unannounced) unannouncedSince = null;
+  else if (unannouncedSince === null) unannouncedSince = Date.now();
+  const graceLeft = unannouncedSince === null ? 0 : unannouncedSince + UNANNOUNCED_GRACE_MS - Date.now();
+  if (unannouncedCheck) clearTimeout(unannouncedCheck);
+  unannouncedCheck = graceLeft > 0 ? setTimeout(() => updateIndicator(useCli.getState()), graceLeft) : null;
+  const connected = on && ((unannounced && graceLeft <= 0) || socketRuns > 0);
   if (connected || !on) {
     if (indicatorHide) clearTimeout(indicatorHide);
     indicatorHide = null;
     if (useCliIndicator.getState().shown !== connected) useCliIndicator.setState({ shown: connected });
-    return;
+  } else if (useCliIndicator.getState().shown && !indicatorHide) {
+    indicatorHide = setTimeout(() => {
+      indicatorHide = null;
+      useCliIndicator.setState({ shown: false });
+    }, INDICATOR_HOLD_MS);
   }
-  if (!useCliIndicator.getState().shown || indicatorHide) return;
-  indicatorHide = setTimeout(() => {
-    indicatorHide = null;
-    useCliIndicator.setState({ shown: false });
-  }, INDICATOR_HOLD_MS);
+  updateTabs(on);
+}
+
+function updateTabs(on: boolean) {
+  const live = on ? controlledTabs() : {};
+  const shown = useCliIndicator.getState().tabs;
+  const next: Record<string, string> = { ...live };
+  for (const tabId of Object.keys(live)) {
+    const hide = tabHides.get(tabId);
+    if (hide) clearTimeout(hide);
+    tabHides.delete(tabId);
+  }
+  for (const [tabId, controller] of Object.entries(shown)) {
+    if (live[tabId]) continue;
+    if (!on) {
+      const hide = tabHides.get(tabId);
+      if (hide) clearTimeout(hide);
+      tabHides.delete(tabId);
+      continue;
+    }
+    next[tabId] = controller;
+    if (tabHides.has(tabId)) continue;
+    tabHides.set(
+      tabId,
+      setTimeout(() => {
+        tabHides.delete(tabId);
+        const { [tabId]: _gone, ...rest } = useCliIndicator.getState().tabs;
+        useCliIndicator.setState({ tabs: rest, families: familiesOf(rest) });
+      }, INDICATOR_HOLD_MS),
+    );
+  }
+  const same = Object.keys(next).length === Object.keys(shown).length && Object.entries(next).every(([id, c]) => shown[id] === c);
+  if (!same) useCliIndicator.setState({ tabs: next, families: familiesOf(next) });
 }
 
 useCli.subscribe(updateIndicator);
+onControlledChanged(() => updateIndicator(useCli.getState()));
 
 export function noteSocketRun(delta: 1 | -1) {
   socketRuns = Math.max(0, socketRuns + delta);

@@ -34,6 +34,7 @@ const testGlobals = globalThis as {
   acTestTabStrip?: TabStripHost;
   acTestCliControl?: (on: boolean | null) => Promise<CliControlStatus> | undefined;
   acTestCliActive?: (tabId: string | null) => Promise<CliControlStatus> | undefined;
+  acTestTabTargets?: Record<string, string>;
   acTestUserScripts?: { engine: ExtensionEngine };
 };
 
@@ -312,6 +313,7 @@ const fakeModules = {
       cliControlStatus: () => cliControl(null),
       setCliControl: ({ on }) => cliControl(on),
       setCliActiveTab: ({ tabId }) => testGlobals.acTestCliActive?.(tabId) ?? cliStatus(null),
+      tabTargetId: ({ tabId }) => testGlobals.acTestTabTargets?.[tabId] ?? null,
     },
     { inputIdleSeconds: () => 3600 },
   ),

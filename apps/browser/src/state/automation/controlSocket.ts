@@ -14,6 +14,7 @@ import { systemInfo } from "../../platform/app";
 import { useBrowser } from "../browser/store";
 import { NoCommandWindowError, runCommand } from "../commands/commands";
 import { noteSocketRun, noteSocketServing } from "../app/cliControl";
+import { dropControlling, noteControlling, parseAnnouncement } from "../app/cliControlled";
 import { errorText } from "../../lib/errors";
 import { minimizedUrl } from "../../lib/urlParts";
 import { automationWindows } from "./automationWindows";
@@ -138,6 +139,12 @@ function answer(connection: number, method: string, params: Record<string, unkno
       return { result: automationWindows(useBrowser.getState()) };
     case "subscribe":
       return subscribe(connection, params);
+    case "controlling": {
+      const announcement = parseAnnouncement(params);
+      if ("error" in announcement) return failure("bad_request", announcement.error);
+      noteControlling(connection, announcement);
+      return { result: { ok: true } };
+    }
     case "answer": {
       const answered = answerDecision(connection, params);
       return "error" in answered ? failure("bad_request", answered.error) : { result: answered };
@@ -179,6 +186,7 @@ function answer(connection: number, method: string, params: Record<string, unkno
 function handleClose({ connection }: { connection: number }) {
   launchSent.delete(connection);
   dropResponder(connection);
+  dropControlling(connection);
   if (subscriptions.delete(connection)) refreshFeed();
 }
 
@@ -208,6 +216,7 @@ async function start() {
 async function stop() {
   generation = null;
   noteSocketServing(false);
+  dropControlling();
   subscriptions.clear();
   launchSent.clear();
   stopResponders();
@@ -223,6 +232,7 @@ function sync() {
   if (!on) {
     generation = null;
     noteSocketServing(false);
+    dropControlling();
     stopResponders();
     runWritten([...unwrittenRuns]);
   }

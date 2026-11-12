@@ -41,6 +41,7 @@ export type EngineCalls = {
   "engine.cliControlStatus": [{}, CliControlStatus];
   "engine.setCliControl": [{ on: boolean }, CliControlStatus];
   "engine.setCliActiveTab": [{ tabId: string | null }, CliControlStatus];
+  "engine.tabTargetId": [{ tabId: string }, string | null];
 
   "tabs.routeLinkTabs": [{ urls: string[] }, LinkRoute];
   "tabs.stripCommand": [{ id: number; command: TabStripCommand }, null];

@@ -24,6 +24,7 @@ import { useSidebarRowLook } from "./rowLook";
 import { ROW_TITLE_FRAME, SidebarRowLabel, SidebarRowSurface } from "./SidebarRow";
 import { withShortcut } from "../../state/commands/commandShortcuts";
 import { TabPressArea } from "./TabPressArea";
+import { ControlledTabMark } from "./ControlledTabMark";
 import { entryKey } from "../../state/sidebar/entryKey";
 import type { RowSection } from "./dragModel";
 import { GROUP_INNER_RADIUS } from "./geometry";
@@ -128,6 +129,7 @@ export const TabRow = memo(function TabRow({
                 <Symbol name={mute ? "speaker.slash" : "speaker.wave.2"} size={12} color={theme.textTab} style={{ width: 18, height: 16 }} />
               </Pressable>
             )}
+            <ControlledTabMark tabId={tab.id} />
             {renaming ? (
               <RenameField
                 initial={tab.customTitle ?? tab.title}

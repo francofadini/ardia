@@ -1,9 +1,11 @@
 import asyncio
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from ardia_cli.browse.connection import Browser
 from ardia_cli.browse.errors import BrowseError, CdpError, ConnectionLost, StaleRef, Unreachable
 from ardia_cli.browse.page import Page
+from ardia_cli.controller import Announcer
 
 PAGE_SCHEMES = ("http:", "https:", "about:", "data:", "blob:", "file:")
 
@@ -55,6 +57,8 @@ class State:
         self.restarted = False
         self.target_infos: dict[str, dict] = {}
         self.listeners: list = []
+        self.controller: str | None = config.get("controller")
+        self.announcer: Announcer | None = None
 
     @property
     def connected(self) -> bool:
@@ -75,11 +79,20 @@ class State:
                 "Start over with `ardia browse open <url>`",
                 code="browser_restarted",
             )
+        announcer = None if endpoint.explicit else Announcer(Path(endpoint.source).parent.parent)
+        if announcer is not None:
+            await announcer.start(self.controller)
         browser = Browser(endpoint, self.on_event)
-        await browser.open()
+        try:
+            await browser.open()
+        except BaseException:
+            if announcer is not None:
+                await announcer.close()
+            raise
         self.browser = browser
         self.endpoint = endpoint
         self.instance = endpoint.instance
+        self.announcer = announcer
         for page in self.pages.values():
             page.detach()
         self.sessions.clear()
@@ -94,8 +107,22 @@ class State:
         for page in self.pages.values():
             page.detach()
         self.sessions.clear()
+        announcer, self.announcer = self.announcer, None
+        if announcer is not None:
+            await announcer.close()
         if browser is not None:
             await browser.close()
+
+    def driven_targets(self) -> list[dict]:
+        return [
+            {"targetId": page.target_id, "url": page.url or (self.target_infos.get(page.target_id) or {}).get("url")}
+            for page in self.pages.values()
+            if page.session_id
+        ]
+
+    def announce(self):
+        if self.announcer is not None and self.connected:
+            self.announcer.update(self.driven_targets(), self.controller)
 
     async def refresh_targets(self) -> list[dict]:
         infos = (await self.browser.send("Target.getTargets")).get("targetInfos") or []
@@ -148,6 +175,8 @@ class State:
             listener(None, method, params)
 
     def on_page_event(self, page: Page, method: str, params: dict):
+        if method == "Page.frameNavigated" and not (params.get("frame") or {}).get("parentId"):
+            self.announce()
         for listener in list(self.listeners):
             listener(page, method, params)
 

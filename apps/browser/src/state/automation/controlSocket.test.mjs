@@ -295,3 +295,72 @@ test("the pill stays up until the run's reply is written", async (t) => {
   assert.equal(useCliIndicator.getState().shown, false);
   S().updateSettings({ cliControl: false });
 });
+
+const { resetControlledForTests } = await import("../app/cliControlled.ts");
+const settle = async () => {
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
+};
+
+test("controlling marks only the announced tab, with the controller's name, and holds it 3 s after it ends", async (t) => {
+  fresh();
+  resetControlledForTests();
+  await controlOn();
+  const w = S().createWindow({ url: "https://a.example/" });
+  const driven = model.activeTabId(S(), w);
+  S().newTab(w, { url: "https://a.example/" });
+  const other = model.activeTabId(S(), w);
+  assert.notEqual(other, driven);
+  globalThis.acTestTabTargets = { [driven]: "T-driven", [other]: "T-other" };
+  useCli.setState({ server: { state: "on", port: 1, connections: 1, generation: 5, file: "" } });
+  useCliIndicator.setState({ shown: false, tabs: {} });
+  assert.deepEqual(call("controlling", { controller: "Claude", targets: [{ targetId: "T-driven", url: "https://a.example/" }] }, { connection: 7 }).result, { ok: true });
+  await settle();
+  assert.deepEqual(useCliIndicator.getState().tabs, { [driven]: "Claude" });
+  assert.equal(useCliIndicator.getState().shown, false);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  stub.emitControlClose(7);
+  await settle();
+  assert.deepEqual(useCliIndicator.getState().tabs, { [driven]: "Claude" });
+  t.mock.timers.tick(3000);
+  assert.deepEqual(useCliIndicator.getState().tabs, {});
+  t.mock.timers.reset();
+  delete globalThis.acTestTabTargets;
+});
+
+test("an unnamed client is ardia, a bad announcement is refused, and turning control off clears the marks at once", async () => {
+  fresh();
+  resetControlledForTests();
+  await controlOn();
+  const w = S().createWindow({ url: "https://b.example/" });
+  const tab = model.activeTabId(S(), w);
+  globalThis.acTestTabTargets = { [tab]: "T-b" };
+  useCli.setState({ server: { state: "on", port: 1, connections: 1, generation: 6, file: "" } });
+  assert.equal(call("controlling", { targets: "nope" }, { connection: 8 }).error.code, "bad_request");
+  call("controlling", { targets: [{ targetId: "T-b", url: "https://elsewhere.example/" }] }, { connection: 8 });
+  await settle();
+  assert.deepEqual(useCliIndicator.getState().tabs, { [tab]: "ardia" });
+  S().updateSettings({ cliControl: false });
+  useCli.setState({ server: { state: "off", connections: 0, generation: 7, file: "" } });
+  await settle();
+  assert.deepEqual(useCliIndicator.getState().tabs, {});
+  delete globalThis.acTestTabTargets;
+});
+
+test("a CDP client that never announces keeps the window pill; one that announces doesn't", async (t) => {
+  fresh();
+  resetControlledForTests();
+  await controlOn();
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  S().createWindow({ url: "https://c.example/" });
+  useCliIndicator.setState({ shown: false, tabs: {} });
+  useCli.setState({ server: { state: "on", port: 1, connections: 1, generation: 8, file: "" } });
+  assert.equal(useCliIndicator.getState().shown, false);
+  t.mock.timers.tick(1500);
+  assert.equal(useCliIndicator.getState().shown, true);
+  call("controlling", { targets: [] }, { connection: 9 });
+  await settle();
+  assert.equal(useCliIndicator.getState().shown, true);
+  t.mock.timers.tick(3000);
+  assert.equal(useCliIndicator.getState().shown, false);
+  S().updateSettings({ cliControl: false });
+});

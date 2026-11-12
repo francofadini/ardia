@@ -44,5 +44,8 @@ public class EngineModule: Module {
       let active = try args.optionalText("tabId").map { ArdiaHost.chromeTabId(ofTab: $0) } ?? -1
       EngineCall.passing("ac_cli_control", profile: args.profile, args: ["active": active], reply: reply)
     },
+    "tabTargetId": { args, reply in
+      ArdiaHost.devToolsTargetId(ofTab: try args.text("tabId")) { reply.ok($0) }
+    },
   ])
 }

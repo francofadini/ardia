@@ -37,6 +37,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)stopCapture:(NSString *)tabId NS_SWIFT_NAME(stopCapture(tabId:));
 + (BOOL)showAutofillSuggestions:(NSString *)tabId passwords:(BOOL)passwords NS_SWIFT_NAME(showAutofillSuggestions(tabId:passwords:));
 + (int)chromeTabIdOfTab:(NSString *)tabId NS_SWIFT_NAME(chromeTabId(ofTab:));
++ (void)devToolsTargetIdOfTab:(NSString *)tabId completion:(void (^)(NSString *_Nullable targetId))completion
+    NS_SWIFT_NAME(devToolsTargetId(ofTab:completion:));
 + (BOOL)isPrivateProfile:(NSString *)profile NS_SWIFT_NAME(isPrivateProfile(_:));
 @property(class, nullable, copy) void (^quitCancelledHandler)(void);
 + (void)menuShortcutsChanged;

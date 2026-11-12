@@ -46,6 +46,12 @@ export const STATUS_MOTION = {
   hide: { duration: duration.slow, easing: curve.exit, delay: 180 },
 } as const;
 
+export const CLAUDE_MARK = {
+  color: "#D97757",
+  rays: [1, 0.78, 0.94, 0.82, 1, 0.76, 0.92, 0.84, 0.98, 0.8, 0.9, 0.86],
+  rayWidth: 0.15,
+} as const;
+
 export const CLI_PILL_MOTION = {
   show: { duration: duration.base, easing: curve.enter },
   hide: { duration: duration.base, easing: curve.exit },

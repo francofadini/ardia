@@ -24,6 +24,7 @@ import { CELL_STEP, dragRange, leaveIndex, type DragGeometry } from "./stripGrou
 import { CHIP_LABEL_GAP, CHIP_PAD, DROP_RING_WIDTH, GAP, ITEM_HEIGHT, ITEM_TOP, PINNED_CELL, TAB_RADIUS, TOP_STRIP_HEIGHT } from "./tokens";
 import { useStripDrag } from "./useStripDrag";
 import { TabPressArea } from "../sidebar/TabPressArea";
+import { ControlledTabMark } from "../sidebar/ControlledTabMark";
 import { tabTitle, tabTooltip } from "../../state/browser/model";
 
 export function DraggableChip({
@@ -139,6 +140,7 @@ export function TabChip({ tabId, width, tuck, dragged }: { tabId: string; width:
                 <Symbol name={mute ? "speaker.slash" : "speaker.wave.2"} size={11} color={onBand ? palette.icon : theme.textTab} style={{ width: 16, height: 16 }} />
               </Pressable>
             )}
+            <ControlledTabMark tabId={tab.id} />
             <FadeLabel
               text={title}
               fontSize={font.small.fontSize}
