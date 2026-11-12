@@ -135,6 +135,10 @@ def main(argv: list[str] | None = None) -> int:
         from ardia_cli import automation_cli
 
         return automation_cli.dispatch(args, parser)
+    if args.command == "group":
+        from ardia_cli import group_cli
+
+        return group_cli.run(args, parser)
     if args.command in ("config", "theme"):
         from ardia_cli import config_cli
 

@@ -88,7 +88,25 @@ bookmark searches) and their fixed page title.
   window. Window, tab, profile and eligibility are checked just before the command runs: a closed, moved or
   private target is `no_window`, never a fallback to the focused tab.
 - `windows` → `[{"id", "kind": "normal"|"little", "focused", "profile", "profileName", "tabs": [{"id", "url",
-  "title", "profile", "active", "pinned", "group": id|null}]}]`. `active` is the tab in the window's focused pane.
+  "title", "profile", "active", "pinned", "group": id|null}], "groups": [{"id", "name", "title", "profile",
+  "pinned", "collapsed", "parent": id|null, "tabs": [ids]}]}]`. `active` is the tab in the window's focused pane.
+  A tab's `group` is its innermost group. `groups` are the sidebar's groups (folders) in sidebar order, a parent
+  before the groups nested in it; `name` is what the user typed ("" when unnamed) and `title` what the sidebar
+  shows; `pinned` is the pinned section; `tabs` are every eligible tab inside, nested ones included, in order.
+- `createGroup` `{"tabs": [ids], "name"?, "pinned"?: bool, "window"?}` → `{"groupId"}`: groups the tabs exactly as
+  the sidebar's New Group with Tabs does. The tabs must be eligible tabs of one normal window and one profile
+  (`no_window` for an unknown tab, `bad_request` across windows or profiles, for a Little Ardia tab or a pinned
+  tile); with `window`, they must be in it (`no_window`). `name` is trimmed; without it the group takes the
+  automatic name. `pinned` puts it in the pinned section (tabs pinned as rows always make a pinned group). When
+  every tab is already in one group, the new group nests inside it: move the tabs into the parent first to
+  build a nested folder.
+- `moveTab` `{"tab", "group"?: id|null, "index"?}` → `{"ok": true, "group": id|null}` (where the tab ended up), the
+  same move as dragging it in the sidebar. `group` is a group in the tab's window and profile (`no_window` when
+  unknown, `bad_request` otherwise); `null` takes it out of its groups to the unpinned list; without `group` it
+  stays in its innermost group (or the unpinned list) and only moves. `index` counts the destination's items from
+  0, where a nested group is one item; past the end, or without it, the tab goes last. A pinned tab moved this way
+  is unpinned, as dragging it to the list does.
+- `renameGroup` `{"group", "name"}` → `{"ok": true}`. `name` is trimmed; `""` brings back the automatic name.
 - `subscribe` `{"events": [names] | ["*"], "fullUrls"?: bool, "idle"?: {"tab"?: [s], "user"?: [s]}, "hooks"?:
   [hook objects]}` → `{"ok": true, "served": [names]}`, then events on that connection until it closes. Calling it
   again replaces everything. `"*"` is every event except the named-only ones (below). Without `fullUrls`, URLs

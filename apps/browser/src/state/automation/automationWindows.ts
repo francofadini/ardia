@@ -2,12 +2,23 @@ import type { BrowserState } from "../browser/store";
 import { activeTabId, isIncognitoProfile } from "../browser/model";
 import { isPeekTab } from "../peek/peek";
 import { INTERNAL_PAGES, internalPageOf } from "../pages/urls";
-import { groupOf } from "../pins/tabGrouping";
+import { groupLabel, groupOf } from "../pins/tabGrouping";
+import { depthOf } from "../groups/groups";
+import type { TabGroup } from "../browser/types";
 import { focusedWindowOf } from "../windows/ui";
 
 export type AutomationWindowKind = "normal" | "little";
 export type AutomationTab = { id: string; url: string; title: string; profile: string; active: boolean; pinned: boolean; group: string | null };
-export type AutomationWindow = { id: string; kind: AutomationWindowKind; focused: boolean; profile: string; profileName: string; tabs: AutomationTab[] };
+export type AutomationGroup = { id: string; name: string; title: string; profile: string; pinned: boolean; collapsed: boolean; parent: string | null; tabs: string[] };
+export type AutomationWindow = {
+  id: string;
+  kind: AutomationWindowKind;
+  focused: boolean;
+  profile: string;
+  profileName: string;
+  tabs: AutomationTab[];
+  groups: AutomationGroup[];
+};
 
 type Snapshot = Pick<BrowserState, "windows" | "windowOrder" | "tabs" | "peeks" | "groups" | "profiles" | "ui">;
 
@@ -26,6 +37,30 @@ export function shownPage(t: { url: string; title: string; customTitle?: string 
   const page = internalPageOf(t.url);
   if (page) return { url: t.url.replace(/[?#].*$/, ""), title: INTERNAL_PAGES[page].title };
   return { url: t.url, title: t.customTitle || t.title };
+}
+
+export function eligibleGroup(s: Pick<BrowserState, "windows" | "groups">, groupId: string): TabGroup | null {
+  const g = Object.hasOwn(s.groups, groupId) ? s.groups[groupId] : undefined;
+  return g && eligibleKind(s, g.windowId) && !isIncognitoProfile(g.profileId) ? g : null;
+}
+
+function windowGroups(s: Snapshot, windowId: string, tabIds: string[]): AutomationGroup[] {
+  const at = new Map(tabIds.map((id, i) => [id, i]));
+  return Object.values(s.groups)
+    .filter((g) => g.windowId === windowId && !isIncognitoProfile(g.profileId))
+    .map((g) => ({ g, tabs: g.tabIds.filter((id) => at.has(id)) }))
+    .filter(({ tabs }) => tabs.length)
+    .sort((a, z) => at.get(a.tabs[0]!)! - at.get(z.tabs[0]!)! || depthOf(s.groups, a.g.id) - depthOf(s.groups, z.g.id))
+    .map(({ g, tabs }) => ({
+      id: g.id,
+      name: g.name,
+      title: groupLabel(s, g),
+      profile: g.profileId,
+      pinned: g.pinned,
+      collapsed: g.collapsed,
+      parent: g.parentId && s.groups[g.parentId] ? g.parentId : null,
+      tabs,
+    }));
 }
 
 export function lastFocusedEligibleWindow(s: Pick<BrowserState, "windows" | "windowOrder" | "ui">): string | null {
@@ -47,6 +82,7 @@ export function automationWindows(s: Snapshot): AutomationWindow[] {
       const t = s.tabs[tabId]!;
       return { id: tabId, ...shownPage(t), profile: t.profileId, active: tabId === active, pinned: t.pin !== null, group: groupOf(s, tabId)?.id ?? null };
     });
-    return [{ id, kind, focused: id === focused, profile: w.profileId, profileName: s.profiles[w.profileId]?.name ?? "", tabs }];
+    const groups = windowGroups(s, id, tabs.map((t) => t.id));
+    return [{ id, kind, focused: id === focused, profile: w.profileId, profileName: s.profiles[w.profileId]?.name ?? "", tabs, groups }];
   });
 }

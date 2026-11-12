@@ -17,6 +17,8 @@ import { noteSocketRun, noteSocketServing } from "../app/cliControl";
 import { errorText } from "../../lib/errors";
 import { minimizedUrl } from "../../lib/urlParts";
 import { automationWindows } from "./automationWindows";
+import { planCreateGroup, planMoveTab, planRenameGroup } from "./automationGroups";
+import { groupOf } from "../pins/tabGrouping";
 import { TAB_IDLE_EVENTS, USER_IDLE_EVENTS, type AutomationEventName } from "./eventNames";
 import { commands, failure, hello, parseRequest, parseSubscription, planRun, type RequestId, type Subscription } from "./automationMethods";
 import { feedNeeds, stopFeed, updateFeed } from "./automationFeed";
@@ -88,12 +90,14 @@ function replayLaunch(connection: number) {
 
 type Body = { result: unknown } | { error: unknown };
 
+const CHANGING_METHODS: ReadonlySet<string> = new Set(["run", "createGroup", "moveTab", "renameGroup"]);
+
 export function handleControlRequest({ connection, generation: tagged, line }: ControlRequest) {
   const request = parseRequest(line);
   if ("error" in request) return send(connection, request.id, { error: request.error });
   const { id, method, params } = request;
   if (tagged !== generation || !controlOn()) return send(connection, id, failure("failed", "Control is off."));
-  const ticket = method === "run" ? ++nextTicket : 0;
+  const ticket = CHANGING_METHODS.has(method) ? ++nextTicket : 0;
   if (ticket) {
     unwrittenRuns.add(ticket);
     noteSocketRun(1);
@@ -147,6 +151,25 @@ function answer(connection: number, method: string, params: Record<string, unkno
         if (error instanceof NoCommandWindowError) return failure("no_window", error.message);
         throw error;
       }
+      return { result: { ok: true } };
+    }
+    case "createGroup": {
+      const plan = planCreateGroup(useBrowser.getState(), params);
+      if ("error" in plan) return plan;
+      const groupId = useBrowser.getState().groupTabs(plan.tabIds, { pinned: plan.pinned, name: plan.name });
+      return groupId ? { result: { groupId } } : failure("failed", "Those tabs couldn't be grouped.");
+    }
+    case "moveTab": {
+      const plan = planMoveTab(useBrowser.getState(), params);
+      if ("error" in plan) return plan;
+      useBrowser.getState().placeTabs([plan.tabId], plan.placement);
+      const now = useBrowser.getState();
+      return { result: { ok: true, group: groupOf(now, plan.tabId)?.id ?? null } };
+    }
+    case "renameGroup": {
+      const plan = planRenameGroup(useBrowser.getState(), params);
+      if ("error" in plan) return plan;
+      useBrowser.getState().updateGroup(plan.groupId, { name: plan.name });
       return { result: { ok: true } };
     }
   }

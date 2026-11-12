@@ -364,6 +364,54 @@ class Methods(Base):
         status, out, _ = self.run_cli("windows", "--json")
         self.assertEqual(json.loads(out), WINDOWS)
 
+    def test_windows_lists_groups(self):
+        server = self.serve()
+        groups = [
+            {"id": "g1", "name": "Work", "title": "Work", "profile": "default", "pinned": True, "collapsed": True, "parent": None, "tabs": [11, 12]},
+            {"id": "g2", "name": "", "title": "New Group", "profile": "default", "pinned": False, "collapsed": False, "parent": "g1", "tabs": [12]},
+        ]
+        server.replies["windows"] = lambda params: {"result": [{**WINDOWS[0], "groups": groups}]}
+        status, out, _ = self.run_cli("windows")
+        self.assertEqual(status, 0)
+        self.assertIn('  group g1  "Work"  pinned  collapsed  tabs 11, 12', out)
+        self.assertIn('  group g2  "New Group"  in g1  tabs 12', out)
+
+    def test_group_commands(self):
+        server = self.serve()
+        server.replies["createGroup"] = lambda params: {"result": {"groupId": "g7"}}
+        server.replies["moveTab"] = lambda params: {"result": {"ok": True, "group": params.get("group")}}
+        server.replies["renameGroup"] = lambda params: {"result": {"ok": True}}
+        status, out, _ = self.run_cli("group", "create", "--name", "Work", "--pinned", "--window", "1", "11", "12")
+        self.assertEqual((status, out.strip()), (0, "g7"))
+        self.assertEqual(self.run_cli("group", "move", "12", "--group", "g7", "--index", "0")[1].strip(), "moved into group g7")
+        self.assertEqual(self.run_cli("group", "move", "12", "--top")[1].strip(), "moved to the top level")
+        self.run_cli("group", "move", "12", "--index", "2")
+        self.assertEqual(self.run_cli("group", "rename", "g7", "Deep work")[1].strip(), "renamed")
+        sent = [(m, p) for m, p in server.requests if m != "hello"]
+        self.assertEqual(
+            sent,
+            [
+                ("createGroup", {"tabs": [11, 12], "name": "Work", "pinned": True, "window": 1}),
+                ("moveTab", {"tab": 12, "group": "g7", "index": 0}),
+                ("moveTab", {"tab": 12, "group": None}),
+                ("moveTab", {"tab": 12, "index": 2}),
+                ("renameGroup", {"group": "g7", "name": "Deep work"}),
+            ],
+        )
+
+    def test_group_errors(self):
+        server = self.serve()
+        server.replies["moveTab"] = lambda params: {"error": {"code": "no_window", "message": "There's no group g9 the ardia command can use."}}
+        status, _, err = self.run_cli("group", "move", "12", "--group", "g9")
+        self.assertEqual(status, 1)
+        self.assertIn("There's no group g9", err)
+        server.replies["renameGroup"] = lambda params: None
+        status, _, err = self.run_cli("group", "rename", "g7", "x")
+        self.assertEqual(status, 2)
+        self.assertIn("may or may not have happened", err)
+        with self.assertRaises(SystemExit):
+            cli.main(["group", "move", "12", "--top", "--group", "g7"])
+
     def test_ignores_null_id_errors_and_unknown_ids(self):
         server = self.serve()
         original = server.answer

@@ -97,6 +97,10 @@ def add_parsers(commands, formatter):
     windows = data_dir(commands.add_parser("windows", help="list Ardia's windows and their tabs", description="List Ardia's windows and their tabs (private windows are never included)."))
     windows.add_argument("--json", action="store_true", help="print JSON")
 
+    from ardia_cli import group_cli
+
+    group_cli.add_parser(commands, formatter, data_dir)
+
     events = data_dir(commands.add_parser("events", help="print events as they happen", description=EVENTS_DESCRIPTION, formatter_class=formatter))
     events.add_argument("events", nargs="*", metavar="EVENT", help="event names (default: all)")
     events.add_argument("--json", action="store_true", help="print the raw JSON lines")
@@ -286,6 +290,15 @@ def cmd_windows(args) -> int:
             group = f"  (group {tab['group']})" if tab.get("group") is not None else ""
             title = tab.get("title") or ""
             say(f"  {marks} {tab.get('id')}  {title}  {tab.get('url', '')}{group}")
+        for item in window.get("groups") or []:
+            if not isinstance(item, dict):
+                continue
+            parts = [f"  group {item.get('id')}", json.dumps(item.get("title") or item.get("name") or "", ensure_ascii=False)]
+            parts += [flag for flag in ("pinned", "collapsed") if item.get(flag)]
+            if item.get("parent") is not None:
+                parts.append(f"in {item['parent']}")
+            parts.append("tabs " + ", ".join(map(str, item.get("tabs") or [])))
+            say("  ".join(parts))
     return 0
 
 

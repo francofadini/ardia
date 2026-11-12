@@ -43,7 +43,11 @@ the pins into `pyproject.toml`).
 - `ardia run COMMAND [ARG]` runs one of Ardia's commands over `<data dir>/ArdiaControl.sock` (see
   `docs/automation.md`).
 - `ardia commands` lists the commands `run` takes (see `docs/automation.md`).
-- `ardia windows` lists the windows and their tabs (see `docs/automation.md`).
+- `ardia windows` lists the windows, their tabs and their groups (see `docs/automation.md`).
+- `ardia group create [--name NAME] [--pinned] [--window ID] TAB…` groups tabs and prints the group's id;
+  `ardia group move TAB [--group ID | --top] [--index N]` moves a tab into a group, out to the list, or within
+  where it is; `ardia group rename GROUP NAME` renames one (`createGroup`, `moveTab` and `renameGroup` in
+  `docs/automation.md`).
 - `ardia events [EVENT…]` streams browser events (see `docs/automation.md`).
 - `ardia on EVENT[,EVENT…] -- PROGRAM` runs a program for each event (see `docs/automation.md`).
 - `ardia hooks run|install|uninstall|list` runs the hooks in `hooks.json`, at login through a LaunchAgent (see
