@@ -10,6 +10,7 @@ const MAX_COLLECTIONS = 8;
 const MAX_POSTPONES = 30;
 const INPUT_IDLE_SECONDS = 2;
 const TIMER_LATE_MS = 50;
+const SLOW_COLLECTION_MS = 100;
 
 type HermesStats = { js_heapSize?: number };
 const runtime = globalThis as { gc?: () => void; HermesInternal?: { getInstrumentedStats?: () => HermesStats } };
@@ -24,6 +25,7 @@ export function startMemoryTrim() {
   started = true;
 
   let tabCount = Object.keys(useBrowser.getState().tabs).length;
+  let collectionsSlow = false;
   let lastTrimAt = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -52,9 +54,12 @@ export function startMemoryTrim() {
       if (postponed < MAX_POSTPONES) later((late) => compact(step, before, postponed + 1, late), BUSY_RETRY_MS);
       return;
     }
+    const collectedFrom = Date.now();
     runtime.gc!();
+    const slow = Date.now() - collectedFrom > SLOW_COLLECTION_MS;
+    collectionsSlow ||= slow;
     const after = heapSize() ?? before;
-    if (after < before && step + 1 < MAX_COLLECTIONS) later((late) => compact(step + 1, after, postponed, late), STEP_MS);
+    if (!slow && after < before && step + 1 < MAX_COLLECTIONS) later((late) => compact(step + 1, after, postponed, late), STEP_MS);
     else finish();
   };
 
@@ -67,7 +72,7 @@ export function startMemoryTrim() {
       return;
     }
     lastTrimAt = Date.now();
-    if (compactsHeap) compact(0, heapSize() ?? 0, 0, 0);
+    if (compactsHeap && !collectionsSlow) compact(0, heapSize() ?? 0, 0, 0);
     else finish();
   };
 
