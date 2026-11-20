@@ -20,7 +20,7 @@ ardia browse close                       # closes only the tabs this session ope
 
 - **It's the user's browser.** Their tabs, cookies and logins. `open` without a session tab opens a new background
   tab; later `open`s navigate that tab. The user's own tabs are only touched after `tab <id>` (or `tab active`, the
-  one they're looking at). `close` closes the tabs this session opened, never the browser. `tab list` shows the
+  one they're looking at); don't do that unless the user asks. `close` closes the tabs this session opened, never the browser. `tab list` shows the
   user's tabs too; `tab close` refuses theirs.
 - **Background tabs get no input.** Chrome doesn't deliver mouse or keyboard events to a hidden tab, so `click`,
   `fill`, `type`, `press`, `hover`, `drag` and `mouse` fail with a clear error on a background tab. Use

@@ -1,6 +1,6 @@
 ---
 name: ardia
-description: Drive the user's running Ardia browser from the terminal with `ardia exec` (Python and pydoll over the Chrome DevTools Protocol) or `ardia browse` (agent-browser's commands: snapshot with @refs, click, fill, screenshot). Use when a task needs a real browser with the user's logins, to read the page the user is looking at, open pages, click, type, take screenshots or run JavaScript; to write, test and install userscripts that change how sites look or behave; to change Ardia's settings, shortcuts or colour theme through its config files; to run Ardia's own commands or react to its tab and window events with hooks; or to set up and run a daily report built from the sites the user pins and visits.
+description: Drive the user's running Ardia browser from the terminal with `ardia exec` (Python and pydoll over the Chrome DevTools Protocol) or `ardia browse` (agent-browser's commands: snapshot with @refs, click, fill, screenshot). Use when a task needs a real browser with the user's logins, to open pages, click, type, take screenshots or run JavaScript; to write, test and install userscripts that change how sites look or behave; to change Ardia's settings, shortcuts or colour theme through its config files; or to run Ardia's own commands or react to its tab and window events with hooks.
 ---
 
 # Driving Ardia with `ardia exec`
@@ -10,8 +10,7 @@ expression is printed: strings as they are, anything else as its repr, or JSON w
 process, so carry state between runs in a URL or a file, not a variable.
 
 ```sh
-ardia exec 'await tab.title()'
-ardia exec --json '[await t.current_url() for t in tabs]'
+ardia exec 't = await new_tab("https://example.com"); await t.title()'
 ardia exec -f script.py
 ```
 
@@ -19,12 +18,13 @@ In scope:
 
 - `tab`: the web page the user is looking at when the run starts, even with Ardia's window covered. When they're on
   New Tab or another Ardia view, any use of `tab` raises `NoPageTab` (and `bool(tab)` is False): open a page with
-  `new_tab` instead.
-- `tabs`: every web page tab when the run starts, the user's own included, plus the ones `new_tab` opens.
+  `new_tab` instead. It's the user's tab: don't use it unless they ask you to.
+- `tabs`: every web page tab when the run starts, the user's own included, plus the ones `new_tab` opens. Use it
+  to find your own tabs again.
 - `new_tab(url, background=True)`: opens a tab in the sidebar, waits for the page to load and returns it.
   `background=False` switches the user to it.
-- `js(expression, tab=None)`: evaluates JavaScript and returns its value. Pass `tab=t` for your own tab; without
-  it, `js` uses the user's tab, else the last tab you opened, else raises `NoPageTab`.
+- `js(expression, tab=None)`: evaluates JavaScript and returns its value. Always pass `tab=t` for your own tab;
+  without it, `js` uses the user's tab, else the last tab you opened, else raises `NoPageTab`.
 - `browser` (pydoll `Chrome`), `By`, `Key`, `asyncio` and the rest of `pydoll`'s exports.
 
 Exit status: 0 done, 1 your code raised or timed out (`--timeout`, default 300 s), 2 Ardia can't be reached or
@@ -42,7 +42,8 @@ some commands are gated by Ardia's policy): read `references/browse.md` first.
 
 This is the user's own browser, signed in to their accounts.
 
-- Do your work in a tab you open with `new_tab`. Read the user's `tab`, but don't navigate it unless they ask.
+- Do your work in a tab you open with `new_tab`. Leave the user's tabs alone (`tab` and theirs in `tabs`): don't
+  read, navigate or close them unless they ask.
 - Close only the tabs you opened (`await t.close()`), and only when you're done with them.
 - Delete the scratch scripts you wrote; keep the files the user asked for (screenshots, exports).
 - Ask before anything with consequences: submitting forms, sending messages, posting, buying, deleting,
@@ -50,13 +51,6 @@ This is the user's own browser, signed in to their accounts.
 - Don't read or export cookies, passwords or storage unless the user asks for exactly that.
 
 ## Recipes
-
-Read the page the user is on (raises `NoPageTab` on New Tab):
-
-```sh
-ardia exec 'await tab.current_url(), await tab.title()'
-ardia exec 'await js("document.body.innerText.slice(0, 5000)")'
-```
 
 Open a page and work there. Every run starts over, so find your tab again by URL:
 
@@ -108,13 +102,13 @@ await t.wait_for_script("document.readyState === 'complete'", timeout=10)
 await t.wait_for_network_idle(timeout=15)
 ```
 
-Screenshots and PDFs go to a file:
+Screenshots and PDFs of your tab go to a file:
 
-```sh
-ardia exec 'await tab.take_screenshot("/tmp/page.png"); "/tmp/page.png"'
-ardia exec 'await tab.take_screenshot("/tmp/full.png", beyond_viewport=True)'
-ardia exec 'el = await tab.query("main"); await el.take_screenshot("/tmp/main.png")'
-ardia exec 'await tab.print_to_pdf("/tmp/page.pdf")'
+```python
+await t.take_screenshot("/tmp/page.png")
+await t.take_screenshot("/tmp/full.png", beyond_viewport=True)
+await (await t.query("main")).take_screenshot("/tmp/main.png")
+await t.print_to_pdf("/tmp/page.pdf")
 ```
 
 Run JavaScript: `js()` returns plain values (awaiting promises) and raises on a JavaScript error.
@@ -214,23 +208,9 @@ into it. `ardia hooks list` checks the file, `ardia hooks install` (ask first) r
 their output goes to `~/Library/Logs/Ardia/hooks.log`. Inside `ardia exec` the same is `await run(...)` (with
 `window=` or `tab=`), `await windows()` and `async for e in events(...)`.
 
-## Daily reports
-
-Once you know Ardia works, ask the user whether they'd like a daily report. If they say no, drop it. If they say
-yes, ask what they care about most and when they want it, then set it up so it runs on its own each day (your
-harness's scheduler if it has one, otherwise the system's). Save what you agreed on where the scheduled run can read
-it.
-
-Each report starts from what the user actually uses. `await pinned()` returns their pinned tabs and favorites, and
-`await history()` returns what they visited recently. Visit the sites that matter in tabs of your own, using their
-logins, and only read: never reply, mark as read, accept or send anything. By default the report covers what's
-pending for them and what changed on things they finished or are waiting on since the last report. Shape it around
-their priorities, keep it short, and deliver it the way they asked. Keep enough state between runs to tell new from
-old.
-
 ## Gotchas
 
-- Tab and element methods are coroutines: `await tab.title()`, `await tab.current_url()`, `await el.text()`.
+- Tab and element methods are coroutines: `await t.title()`, `await t.current_url()`, `await el.text()`.
   `el.get_attribute("href")` is a plain call and `el.tag_name` a plain property, both read when the element was found.
 - `ardia exec` refuses `browser.stop()` and `Browser.close`. It never quits Ardia.
 - It reaches web pages only (http, https, `about:blank`, `data:`, `blob:`), not `file://`, `chrome://`, extension
