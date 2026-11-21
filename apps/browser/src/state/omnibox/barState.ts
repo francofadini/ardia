@@ -1,9 +1,12 @@
 import type { SearchScope } from "@ardia/core";
 import { useBrowser } from "../browser/store";
 import { activeTabId } from "../browser/model";
+import { shownPeek } from "../peek/peek";
 import { expectFocus, heroBarFocus } from "../focus/focusClaims";
 import { webviews } from "../../platform/webviews";
-import { commandBarCentred } from "../windows/layout";
+import { clickBarPlacement } from "./barPlacement";
+import { notePageFocusReturnAfterBar } from "../telemetry/pageFocusReturns";
+import { consentToken } from "../telemetry/client";
 
 export type BarSnapshot = {
   typed: string;
@@ -41,13 +44,29 @@ export function focusHeroBar(windowId: string, tabId: string | undefined): boole
   return true;
 }
 
-export function openEmptySidebarField(windowId: string) {
+export function openBarFromAddress(windowId: string, text: string) {
   const s = useBrowser.getState();
-  if (commandBarCentred(s, windowId) && focusHeroBar(windowId, activeTabId(s, windowId))) return;
-  s.openPanel(windowId, "");
+  s.openPanel(windowId, text, undefined, clickBarPlacement(s, windowId));
+}
+
+export function openEmptySidebarField(windowId: string) {
+  openBarFromAddress(windowId, "");
 }
 
 export type BarDismissal = "escape" | "closeKey";
+
+export function cancelPanel(windowId: string) {
+  const consent = consentToken();
+  useBrowser.getState().closePanel(windowId);
+  setTimeout(() => {
+    const now = useBrowser.getState();
+    const active = activeTabId(now, windowId);
+    if (!active || !now.tabs[active]?.url || now.windowUi[windowId]?.panel.open || shownPeek(now, windowId)) return;
+    void webviews.get(active)?.focusIfUnfocused().then((focused) => {
+      if (focused) notePageFocusReturnAfterBar(consent);
+    });
+  }, 0);
+}
 
 export function closePanelToHeroBar(windowId: string, tabId: string, reason?: BarDismissal) {
   useBrowser.getState().closePanel(windowId);

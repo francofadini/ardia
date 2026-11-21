@@ -1,0 +1,258 @@
+name: Linux
+
+on:
+  pull_request:
+    paths:
+      - "apps/linux/**"
+      - "apps/browser/**"
+      - "scripts/release/official-plugins.py"
+      - "packages/**"
+      - "engine/**"
+      - "scripts/linux/**"
+      - "scripts/lib/**"
+      - "scripts/agent/locked"
+      - "infra/feedback/lib/**"
+      - "patches/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "turbo.json"
+      - "tsconfig.base.json"
+      - ".nvmrc"
+      - ".github/workflows/linux.yml"
+      - ".github/actions/linux-setup/**"
+  push:
+    branches: [main]
+    paths:
+      - "apps/linux/**"
+      - "apps/browser/**"
+      - "scripts/release/official-plugins.py"
+      - "packages/**"
+      - "engine/**"
+      - "scripts/linux/**"
+      - "scripts/lib/**"
+      - "scripts/agent/locked"
+      - "infra/feedback/lib/**"
+      - "patches/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "turbo.json"
+      - "tsconfig.base.json"
+      - ".nvmrc"
+      - ".github/workflows/linux.yml"
+      - ".github/actions/linux-setup/**"
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: Engine, the nearest published one (labelled when older than this commit's engine/) or an exact match
+        type: choice
+        options: [nearest, exact]
+        default: nearest
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+  ARDIACORE_PREBUILT_REPO: ${{ vars.ARDIACORE_PREBUILT_REPO || 'ardia-browser/ardia' }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.vouch.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github
+      - id: vouch
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          retries: 3
+          script: |
+            const vouch = require(`${process.env.GITHUB_WORKSPACE}/.github/vouch/vouch.cjs`);
+            await vouch.gate({ github, context, core });
+
+  checks:
+    name: checks (${{ matrix.name }})
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "UI", part: ui, shard: 1/1, slug: ui }
+          - { name: "engine fixtures, 1 of 3", part: engine, shard: 1/3, slug: engine-1 }
+          - { name: "engine fixtures, 2 of 3", part: engine, shard: 2/3, slug: engine-2 }
+          - { name: "engine fixtures, 3 of 3", part: engine, shard: 3/3, slug: engine-3 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/linux-setup
+      - name: Stock Chromium
+        run: echo "$(readlink -f /usr/bin/chromium) $(/usr/bin/chromium --version)"
+      - run: scripts/linux/ci-checks.sh --part ${{ matrix.part }} --shard ${{ matrix.shard }} --logs "$RUNNER_TEMP/checks"
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: checks-logs-${{ matrix.slug }}
+          path: ${{ runner.temp }}/checks
+          if-no-files-found: ignore
+          retention-days: 14
+
+  package:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      ENGINE_MODE: ${{ inputs.engine || 'nearest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: engine-key
+        run: echo "key=$(engine/engine-key.sh)" >> "$GITHUB_OUTPUT"
+      - name: Which packages
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: |
+          set -euo pipefail
+          full=true
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_CI" != true ]; then
+            if git diff --quiet "$BASE" HEAD -- scripts/linux .github/workflows/linux.yml .github/actions/linux-setup; then full=false; fi
+          fi
+          echo "FULL=$full" >> "$GITHUB_ENV"
+          if [ "$full" = true ]; then
+            echo "Full run: the tarball, the .deb and the AppImage, each smoke-tested, and the .deb installed."
+          else
+            echo "::notice::Fast run: the tarball alone, smoke-tested. The .deb and the AppImage are built on main, with the full-ci label, or when the PR changes the Linux packaging."
+          fi
+      - name: Version
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/.*MARKETING_VERSION = "\{0,1\}\([^";]*\)"\{0,1\};/\1/p' apps/browser/macos/Ardia.xcodeproj/project.pbxproj | sort -u)
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+)?$ ]]; then
+            echo "::error::MARKETING_VERSION isn't one version: '$version'"
+            exit 1
+          fi
+          { echo "VERSION=$version"; echo "CLI_NAME=ardia-cli-$version-linux-x64.tar.gz"; } >> "$GITHUB_ENV"
+      - uses: ./.github/actions/linux-setup
+        with:
+          packages: >-
+            libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libatspi2.0-0t64 libcups2t64 libdbus-1-3
+            libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxrandr2 libxkbcommon0
+            libgbm1 libdrm2 libexpat1 libcairo2 libpango-1.0-0 libudev1 libasound2t64 libglib2.0-0t64
+            libgtk-3-0t64 libsecret-1-0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: apps/browser/build-ardiacore/prebuilt-linux-x86_64
+          key: engine-linux-x64-v3-${{ steps.engine-key.outputs.key }}-${{ hashFiles('packages/ardiacore/prebuilt-engines-linux.tsv') }}
+          restore-keys: engine-linux-x64-v3-
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: packages/ardiacore/vendor/ubo
+          key: ubo-linux-${{ hashFiles('packages/ardiacore/scripts/ubo.sh') }}
+      - name: Engine
+        env:
+          ENGINE_KEY: ${{ steps.engine-key.outputs.key }}
+        run: |
+          set -euo pipefail
+          args=(--arch linux-x86_64)
+          [ "$ENGINE_MODE" = exact ] || args+=(--nearest)
+          if ! engine=$(packages/ardiacore/scripts/fetch-engine.sh "${args[@]}"); then
+            echo "::error::no Linux engine for engine key ${ENGINE_KEY:0:12}: build it on the Linux builder, publish it with scripts/linux/publish-engine.sh --upload and commit prebuilt-engines-linux.tsv"
+            exit 1
+          fi
+          selected=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["engine_key"])' "$engine/manifest.json")
+          if [ "$selected" = "$ENGINE_KEY" ]; then
+            label="${GITHUB_SHA:0:12}"
+            echo "ENGINE_EXACT=1" >> "$GITHUB_ENV"
+            echo "### Linux engine ${ENGINE_KEY:0:12} (exact)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            label="${GITHUB_SHA:0:12}-engine-${selected:0:12}"
+            echo "::warning::built against an older engine, ${selected:0:12}, not this commit's ${ENGINE_KEY:0:12}"
+            echo "### Linux engine ${selected:0:12} (older than this commit's ${ENGINE_KEY:0:12})" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          { echo "ENGINE=$engine"; echo "PACKAGE_NAME=Ardia-linux-x64-$label"; } >> "$GITHUB_ENV"
+      - run: pnpm --filter @ardia/linux build
+      - name: ardia command (pinned)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dist"
+          if python3 -I scripts/release/official-plugins.py published cli linux-x64; then
+            python3 -I scripts/release/official-plugins.py linux-cli "$VERSION" "$RUNNER_TEMP/dist/$CLI_NAME"
+            echo "CLI_ARGS=--cli $RUNNER_TEMP/dist/$CLI_NAME" >> "$GITHUB_ENV"
+          else
+            echo "::warning::the pinned ardia command isn't published yet (apps/browser/official-plugins.json): packaging without it, so the smoke skips cli-install, cli-control and cli-scripts"
+            echo "CLI_ARGS=" >> "$GITHUB_ENV"
+          fi
+      - name: Package
+        run: |
+          set -euo pipefail
+          blocker=$(scripts/linux/fetch-ubo.sh)
+          formats=(tar.xz)
+          extra=()
+          if [ "$FULL" = true ]; then
+            formats+=(deb AppImage)
+            extra+=(--deb "$RUNNER_TEMP/dist/$PACKAGE_NAME.deb" --appimage "$RUNNER_TEMP/dist/$PACKAGE_NAME.AppImage")
+          fi
+          python3 scripts/linux/package.py --out "$ENGINE" --ui apps/linux/dist --content-blocker "$blocker" \
+            --version "$VERSION" $CLI_ARGS --destination "$RUNNER_TEMP/dist/$PACKAGE_NAME.tar.xz" "${extra[@]}"
+          for built in "${formats[@]}"; do
+            (cd "$RUNNER_TEMP/dist" && sha256sum "$PACKAGE_NAME.$built" > "$PACKAGE_NAME.$built.sha256")
+          done
+      - name: Smoke
+        run: |
+          set -euo pipefail
+          extra=()
+          [ "${ENGINE_EXACT:-0}" = 1 ] || extra+=(--allow-old-engine)
+          node scripts/linux/smoke.mjs --package "$RUNNER_TEMP/dist/$PACKAGE_NAME.tar.xz" --results "$RUNNER_TEMP/smoke" --timeout-ms 600000 "${extra[@]}"
+          [ "$FULL" = true ] || exit 0
+          node scripts/linux/smoke.mjs --package "$RUNNER_TEMP/dist/$PACKAGE_NAME.deb" --results "$RUNNER_TEMP/smoke/deb" --timeout-ms 600000 "${extra[@]}"
+          node scripts/linux/smoke.mjs --package "$RUNNER_TEMP/dist/$PACKAGE_NAME.AppImage" --results "$RUNNER_TEMP/smoke/appimage" --timeout-ms 600000 "${extra[@]}"
+      - name: Debian package installs
+        if: env.FULL == 'true'
+        run: |
+          set -euo pipefail
+          dpkg-deb --info "$RUNNER_TEMP/dist/$PACKAGE_NAME.deb"
+          scripts/linux/deb-install-test.sh "$RUNNER_TEMP/dist/$PACKAGE_NAME.deb"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: ${{ env.PACKAGE_NAME }}
+          path: |
+            ${{ runner.temp }}/dist/${{ env.PACKAGE_NAME }}.tar.xz
+            ${{ runner.temp }}/dist/${{ env.PACKAGE_NAME }}.tar.xz.sha256
+            ${{ runner.temp }}/dist/${{ env.PACKAGE_NAME }}.deb
+            ${{ runner.temp }}/dist/${{ env.PACKAGE_NAME }}.deb.sha256
+            ${{ runner.temp }}/dist/${{ env.PACKAGE_NAME }}.AppImage
+            ${{ runner.temp }}/dist/${{ env.PACKAGE_NAME }}.AppImage.sha256
+            ${{ runner.temp }}/smoke/results.json
+            ${{ runner.temp }}/smoke/deb/results.json
+            ${{ runner.temp }}/smoke/appimage/results.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: package-logs
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
+          retention-days: 14

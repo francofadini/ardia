@@ -16,7 +16,21 @@ channel_of() {
   fi
 }
 
+apple_version_of() {
+  channel_of "$1" >/dev/null || return 1
+  echo "${1%%-*}"
+}
+
+mac_marketing_version() {
+  local root
+  root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  sed -n 's/.*MARKETING_VERSION = "\{0,1\}\([^";]*\)"\{0,1\};/\1/p' "$root/apps/browser/macos/Ardia.xcodeproj/project.pbxproj" | sort -u
+}
+
 appcast() { python3 -I "$APPCAST_PY" "$@"; }
+
+engine_symbols_name() { echo "ArdiaCore-${1#engine-}-symbols.tar.xz"; }
+engine_uuids_name() { echo "ArdiaCore-${1#engine-}-uuids.txt"; }
 
 latest_stable_tag() {
   local tag

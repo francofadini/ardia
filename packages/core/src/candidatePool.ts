@@ -1,4 +1,4 @@
-import { logVisits, pageText, pageTexts, type PageText } from "./pageText.ts";
+import { logVisits, pageText, pageTexts, tabPageText, type PageText, withRootSlash } from "./pageText.ts";
 import type { SuggestionSource } from "./suggestion.ts";
 
 type HistoryRow = SuggestionSource["history"][number];
@@ -8,6 +8,8 @@ type TabRow = SuggestionSource["tabs"][number];
 export type Candidate = {
   url: string;
   title: string;
+  pageTitle?: string;
+  renamed?: true;
   favicon: string | null;
   visits: number;
   lastVisit: number;
@@ -118,7 +120,25 @@ export function prepareSuggestions(source: SuggestionSource, deadline: number): 
   return advance(b, bookmarks, deadline);
 }
 
-type TabsOver = { pool: Pool; currentTabId: string | undefined; rows: TabRow[]; tabIds: Map<string, string>; extra: Candidate[] };
+const exactIndexes = new WeakMap<readonly { url: string }[], Map<string, { url: string }>>();
+
+function exactRows<Row extends { url: string }>(rows: readonly Row[]): Map<string, Row> {
+  let index = exactIndexes.get(rows) as Map<string, Row> | undefined;
+  if (!index) {
+    index = new Map();
+    for (const row of rows) {
+      const key = withRootSlash(row.url);
+      if (!index.has(key)) index.set(key, row);
+    }
+    exactIndexes.set(rows, index);
+  }
+  return index;
+}
+
+export const savedVisit = (history: readonly HistoryRow[], url: string): HistoryRow | undefined => exactRows(history).get(withRootSlash(url));
+export const savedBookmark = (bookmarks: readonly BookmarkRow[], url: string): BookmarkRow | undefined => exactRows(bookmarks).get(withRootSlash(url));
+
+type TabsOver = { pool: Pool; currentTabId: string | undefined; rows: TabRow[]; tabIds: Map<string, string>; extra: Candidate[]; renamed: Set<string> };
 const tabsOverCache = new WeakMap<readonly TabRow[], TabsOver>();
 
 export function tabsOver(pool: Pool, tabs: readonly TabRow[], currentTabId?: string): TabsOver {
@@ -129,15 +149,39 @@ export function tabsOver(pool: Pool, tabs: readonly TabRow[], currentTabId?: str
     if (same) return cached;
   }
   const tabIds = new Map<string, string>();
-  const extra: Candidate[] = [];
-  for (const t of tabs) {
+  const renamedTabKeys = new Set<string>();
+  const firstOfPage: boolean[] = new Array(tabs.length);
+  for (let i = 0; i < tabs.length; i++) {
+    const t = tabs[i]!;
     if (!t.url || t.id === currentTabId) continue;
-    const text = pageText(t);
-    if (tabIds.has(text.key)) continue;
-    tabIds.set(text.key, t.id);
-    if (!pool.byKey.has(text.key)) extra.push({ url: t.url, title: t.title, favicon: t.favicon, visits: 0, lastVisit: 0, logVisits: 0, fresh: true, bookmarked: false, tabId: t.id, text });
+    const key = pageText(t).key;
+    if (!t.customTitle) {
+      if (!tabIds.has(key)) {
+        tabIds.set(key, t.id);
+        firstOfPage[i] = true;
+      }
+    } else if (!renamedTabKeys.has(key)) {
+      renamedTabKeys.add(key);
+      tabIds.set(key, t.id);
+    }
   }
-  const result = { pool, currentTabId, rows: tabs.slice(), tabIds, extra };
+  const extra: Candidate[] = [];
+  const renamed = new Set<string>();
+  for (let i = 0; i < tabs.length; i++) {
+    const t = tabs[i]!;
+    if (!t.url || t.id === currentTabId) continue;
+    const key = pageText(t).key;
+    const listed = pool.byKey.get(key);
+    if (!t.customTitle) {
+      if (!listed && firstOfPage[i] && (renamedTabKeys.size === 0 || !renamedTabKeys.has(key))) extra.push({ url: t.url, title: t.title, pageTitle: t.title, favicon: t.favicon, visits: 0, lastVisit: 0, logVisits: 0, fresh: true, bookmarked: false, tabId: t.id, text: tabPageText(t) });
+    } else if (!listed) {
+      extra.push({ url: t.url, title: t.customTitle, pageTitle: t.title, renamed: true, favicon: t.favicon, visits: 0, lastVisit: 0, logVisits: 0, fresh: true, bookmarked: false, tabId: t.id, text: tabPageText(t) });
+    } else {
+      renamed.add(key);
+      extra.push({ url: t.url, title: t.customTitle, renamed: true, favicon: t.favicon ?? listed.favicon, visits: listed.visits, lastVisit: listed.lastVisit, logVisits: listed.logVisits, bookmarked: listed.bookmarked, tabId: t.id, text: tabPageText(t, listed.text) });
+    }
+  }
+  const result = { pool, currentTabId, rows: tabs.slice(), tabIds, extra, renamed };
   tabsOverCache.set(tabs, result);
   return result;
 }

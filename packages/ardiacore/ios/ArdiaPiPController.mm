@@ -110,12 +110,6 @@ BOOL PreventsActivation(NSWindow *window) {
 
 NSInteger gActivations = 0;
 
-void ActivateApp(NSString *why) {
-  gActivations++;
-  if (ardia_host::Background()) return ardia_host::LogActivation([@"activate (skipped in a test instance): " stringByAppendingString:why]);
-  [NSApp activate];
-}
-
 BOOL ThrowEnabled() {
   id value = [NSUserDefaults.standardUserDefaults objectForKey:kThrowDefault];
   return value ? [value boolValue] : YES;
@@ -167,8 +161,8 @@ NSString *CornerName(int corner) {
     NSView *root = ArdiaWindowRootView(window);
     _overlay = [[ArdiaPiPOverlay alloc] initWithFrame:root.bounds];
     __weak ArdiaPiPController *weakSelf = self;
-    _overlay.handle.onClick = ^{ [weakSelf unstash]; };
     [root addSubview:_overlay];
+    _resizeCursor = [[ArdiaPiPResizeCursor alloc] initWithWindow:window view:_overlay];
     objc_setAssociatedObject(window, kControllerKey, self, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
@@ -193,7 +187,7 @@ NSString *CornerName(int corner) {
     [_observers addObject:[center addObserverForName:NSWindowWillStartLiveResizeNotification
                                               object:window
                                                queue:nil
-                                          usingBlock:^(NSNotification *) { [weakSelf stopMotion]; }]];
+                                          usingBlock:^(NSNotification *) { [weakSelf stopMotion]; [weakSelf resizeStarted]; }]];
     [_observers addObject:[center addObserverForName:NSWindowWillCloseNotification
                                               object:window
                                                queue:nil
@@ -209,6 +203,7 @@ NSString *CornerName(int corner) {
   [_observers removeAllObjects];
   [NSObject cancelPreviousPerformRequestsWithTarget:self];
   [_slide invalidate];
+  [_resizeCursor detach];
   [_overlay removeFromSuperview];
   objc_setAssociatedObject(_window, kControllerKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
@@ -290,8 +285,8 @@ NSString *CornerName(int corner) {
 - (void)backToTab {
   ArdiaWebView *view = self.view;
   if (!view) return;
-  ActivateApp(@"Back to Tab (menu)");
-  [view emit:@"activateRequest" payload:@{@"reason" : @"pictureInPicture"}];
+  const BOOL fromOtherApp = ActivateApp(@"Back to Tab (menu)");
+  [view emit:@"activateRequest" payload:@{@"reason" : @"pictureInPicture", @"fromOtherApp" : @(fromOtherApp)}];
   [view exitPictureInPicture];
 }
 
@@ -311,7 +306,7 @@ NSString *CornerName(int corner) {
   if (!_animating) [self fitCorners:YES];
   if (_animating || (_swiping && NSProcessInfo.processInfo.systemUptime - _swipeLastAt < 1)) return;
   if (_swiping) [ArdiaPiPController abandonSwipeOn:_window];
-  if (NSEvent.pressedMouseButtons & 1) _sawDrag = YES;
+  if (_dragging || (NSEvent.pressedMouseButtons & 1)) _sawDrag = YES;
   [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(settle) object:nil];
   [self performSelector:@selector(settle) withObject:nil afterDelay:0.12];
 }
@@ -332,7 +327,7 @@ NSString *CornerName(int corner) {
 }
 
 - (void)settle {
-  if (NSEvent.pressedMouseButtons & 1) {
+  if (_dragging || (NSEvent.pressedMouseButtons & 1)) {
     [self performSelector:@selector(settle) withObject:nil afterDelay:0.12];
     return;
   }
@@ -589,7 +584,7 @@ NSString *CornerName(int corner) {
 }
 
 - (NSDictionary *)throwInfo {
-  return @{@"lastThrow" : _lastThrow ?: @{}, @"lastSwipe" : _lastSwipe ?: @{}, @"lastRelease" : _lastRelease ?: @{}, @"lastScreenFit" : _lastScreenFit ?: @{}, @"swiping" : @(_swiping)};
+  return @{@"lastThrow" : _lastThrow ?: @{}, @"lastSwipe" : _lastSwipe ?: @{}, @"lastRelease" : _lastRelease ?: @{}, @"lastScreenFit" : _lastScreenFit ?: @{}, @"lastDrag" : _lastDrag ?: @{}, @"swiping" : @(_swiping)};
 }
 
 @end

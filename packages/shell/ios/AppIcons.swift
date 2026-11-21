@@ -28,22 +28,33 @@ enum AppIcons {
     return variants.contains { $0.id == id } ? id : "default"
   }
 
+  private static var styleWatcher: IconStyleWatcher?
+
   static func restore() {
-    if current != "default" { apply(current) }
+    if styleWatcher == nil { styleWatcher = IconStyleWatcher { apply() } }
+    if shown != "default" { apply() }
   }
 
   static func set(_ id: String, announce: Bool) {
     guard variants.contains(where: { $0.id == id }) else { return }
     UserDefaults.standard.set(id, forKey: defaultsKey)
-    apply(id)
+    apply()
     if announce, let bundleId = Bundle.main.bundleIdentifier {
       DistributedNotificationCenter.default().postNotificationName(
         changedNotification(bundleId: bundleId), object: nil, userInfo: ["icon": id], deliverImmediately: true)
     }
   }
 
-  private static func apply(_ id: String) {
-    NSApp.applicationIconImage = id == "default" ? nil : image(id, size: 512)
+  static var shown: String { IconStyle.shown(saved: current, theme: IconStyle.systemTheme, bundleIcon: IconStyle.bundleIcon) }
+
+  private static func apply() {
+    let bundleImageBeforeAnyOverride = ApplicationIconName.bundleImage
+    let id = shown
+    let custom = id == "default" ? nil : image(id, size: 512)
+    NSApp.applicationIconImage = custom
+    if !ApplicationIconName.register(custom ?? bundleImageBeforeAnyOverride) {
+      NSLog("Ardia: couldn't name the \(id) app icon \(ApplicationIconName.name); Chromium's Dock tile draws the bundle icon")
+    }
   }
 
   private static var cache: [String: NSImage] = [:]
@@ -88,7 +99,7 @@ enum AppIcons {
       path.lineWidth = max(1, rect.width / 512)
       path.stroke()
       path.addClip()
-      artwork.draw(in: body.insetBy(dx: body.width * 0.06, dy: body.width * 0.06))
+      artwork.draw(in: body)
       return true
     }
     cache[key] = image

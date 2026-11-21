@@ -10,6 +10,7 @@ enum CommandTable {
     case reopenClosedTab
     case reopenClosedWindow
     case restoreClosed
+    case clearRecentlyClosed
     case focusCommandBar
     case closeTab
     case closeAllTabs
@@ -19,6 +20,8 @@ enum CommandTable {
     case findInPage
     case findNext
     case findPrevious
+    case hideElement
+    case showHiddenElements
     case setAppearance
     case reload
     case forceReload
@@ -34,6 +37,7 @@ enum CommandTable {
     case toggleFullUrl
     case toggleJavaScriptFromAppleEvents
     case toggleAddressBar
+    case toggleMinimalism
     case cast
     case zoomReset
     case zoomIn
@@ -61,6 +65,7 @@ enum CommandTable {
     case restoreArcFolders
     case toggleMute
     case togglePageEngine
+    case toggleReader
     case downloads
     case mergeAllWindows
     case switchProfile
@@ -86,10 +91,10 @@ enum CommandTable {
     case returnToPinnedUrl
     case tabSwitcher
     case share
-    case sendFeedback
+    case reportProblem
     case keyboardShortcuts
     case copyDiagnostics
-    case recordPerformanceIssue
+    case copyLastFreeze
     case toolTour
     case videoTour
     case releaseNotes
@@ -120,6 +125,7 @@ enum CommandTable {
     "toggleOpenLinksInLittleArdia": "Open Links from Other Apps in Main Window",
     "reopenClosedTab": "Reopen Closed Tab",
     "reopenClosedWindow": "Reopen Closed Window",
+    "clearRecentlyClosed": "Clear Recently Closed",
     "focusCommandBar": "Open Command Bar",
     "closeTab": "Close Tab",
     "closeAllTabs": "Close All Tabs",
@@ -129,6 +135,8 @@ enum CommandTable {
     "findInPage": "Find…",
     "findNext": "Find Next",
     "findPrevious": "Find Previous",
+    "hideElement": "Hide Element…",
+    "showHiddenElements": "Hidden Elements on This Site…",
     "setAppearance:auto": "Automatic",
     "setAppearance:light": "Light",
     "setAppearance:dark": "Dark",
@@ -146,6 +154,7 @@ enum CommandTable {
     "toggleFullUrl": "Show Full URL",
     "toggleJavaScriptFromAppleEvents": "Allow JavaScript from Apple Events",
     "toggleAddressBar": "Show Address Bar in Sidebar",
+    "toggleMinimalism": "Minimalism Mode",
     "cast": "Cast…",
     "zoomReset": "Zoom to Actual Size",
     "zoomIn": "Zoom In",
@@ -175,6 +184,7 @@ enum CommandTable {
     "bookmarkPage": "Add to Bookmarks…",
     "toggleMute": "Mute Tab",
     "togglePageEngine": "Open Page in WebKit",
+    "toggleReader": "Show Reader",
     "downloads": "Downloads",
     "mergeAllWindows": "Merge All Windows",
     "nextProfile": "Next Profile",
@@ -202,10 +212,10 @@ enum CommandTable {
     "tabSwitcher:forward": "Tab Switcher (forward)",
     "tabSwitcher:backward": "Tab Switcher (backward)",
     "share": "Share…",
-    "sendFeedback": "Send Feedback…",
+    "reportProblem": "Report a Problem…",
     "keyboardShortcuts": "Keyboard Shortcuts",
     "copyDiagnostics": "Copy Diagnostics",
-    "recordPerformanceIssue": "Record Performance Issue…",
+    "copyLastFreeze": "Copy Last Freeze",
     "toolTour": "Tool Tour",
     "videoTour": "Video Tour",
     "releaseNotes": "Release Notes",
@@ -244,6 +254,8 @@ enum CommandTable {
     "findInPage": [("f", [.command])],
     "findNext": [("g", [.command])],
     "findPrevious": [("g", [.shift, .command])],
+    "hideElement": [("h", [.shift, .command])],
+    "showHiddenElements": [("u", [.shift, .command])],
     "reload": [("r", [.command])],
     "forceReload": [("r", [.shift, .command])],
     "toggleTabLayout": [("s", [.shift, .command])],
@@ -254,6 +266,7 @@ enum CommandTable {
     "jumpToSelection": [("j", [.command])],
     "focusNextPane": [("]", [.control, .shift]), ("}", [.control])],
     "focusPreviousPane": [("[", [.control, .shift]), ("{", [.control])],
+    "toggleMinimalism": [("m", [.control, .command])],
     "zoomReset": [("0", [.command])],
     "zoomIn": [("+", [.command]), ("=", [.command])],
     "zoomOut": [("-", [.command])],
@@ -264,8 +277,8 @@ enum CommandTable {
     "viewSource": [("u", [.option, .command])],
     "back": [("[", [.command]), ("\u{F702}", [.command])],
     "forward": [("]", [.command]), ("\u{F703}", [.command])],
-    "nextTab": [("]", [.shift, .command]), ("}", [.command]), ("\u{F703}", [.option, .command]), ("\u{F72D}", [.control]), ("\u{F701}", [.option, .command])],
-    "previousTab": [("[", [.shift, .command]), ("{", [.command]), ("\u{F702}", [.option, .command]), ("\u{F72C}", [.control]), ("\u{F700}", [.option, .command])],
+    "nextTab": [("]", [.shift, .command]), ("}", [.command]), ("\u{9}", [.control]), ("\u{F72D}", [.control]), ("\u{F701}", [.option, .command])],
+    "previousTab": [("[", [.shift, .command]), ("{", [.command]), ("\u{9}", [.control, .shift]), ("\u{F72C}", [.control]), ("\u{F700}", [.option, .command])],
     "selectTab:1": [("1", [.command])],
     "selectTab:2": [("2", [.command])],
     "selectTab:3": [("3", [.command])],
@@ -277,7 +290,10 @@ enum CommandTable {
     "selectLastTab": [("9", [.command])],
     "togglePinnedRow": [("d", [.option, .shift, .command])],
     "bookmarkPage": [("d", [.command])],
+    "toggleReader": [("r", [.option, .command])],
     "downloads": [("j", [.shift, .command]), ("l", [.option, .command])],
+    "nextProfile": [("\u{F703}", [.option, .command])],
+    "previousProfile": [("\u{F702}", [.option, .command])],
     "openSettings": [(",", [.command])],
     "showHistory": [("y", [.command])],
     "clearBrowsingData": [("\u{8}", [.shift, .command])],
@@ -289,10 +305,8 @@ enum CommandTable {
     "cleanUpTabs": [("k", [.option, .command])],
     "searchTabs": [("a", [.shift, .command])],
     "returnToPinnedUrl": [("\u{D}", [.command])],
-    "tabSwitcher:forward": [("\u{9}", [.control])],
-    "tabSwitcher:backward": [("\u{9}", [.control, .shift])],
     "share": [("s", [.option, .command])],
-    "sendFeedback": [("i", [.option, .shift, .command])],
+    "reportProblem": [("i", [.option, .shift, .command])],
     "openFile": [("o", [.command])],
     "emailPageLocation": [("i", [.shift, .command])],
     "printWithSystemDialog": [("p", [.option, .command])],
@@ -311,7 +325,7 @@ enum CommandTable {
     "std:cut:": [("x", [.command])],
     "std:copy:": [("c", [.command])],
     "std:paste:": [("v", [.command])],
-    "std:pasteAndMatchStyle:": [("v", [.shift, .command])],
+    "std:pasteAndMatchStyle:": [("v", [.shift, .command]), ("v", [.option, .shift, .command])],
     "std:selectAll:": [("a", [.command])],
     "std:showGuessPanel:": [(":", [.command])],
     "std:checkSpelling:": [(";", [.command])],

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 const { useBrowser } = await import("../browser/store.ts");
 const model = await import("../browser/model.ts");
-const { useCli, useCliIndicator } = await import("../app/cliControl.ts");
+const { useControlServer: useCli, useControlIndicator: useCliIndicator } = await import("../app/programControl.ts");
 const { startAutomation } = await import("./controlSocket.ts");
 const { noteCommit } = await import("./automationEvents.ts");
 const { automationWindows } = await import("./automationWindows.ts");
@@ -29,6 +29,16 @@ function call(method, params, { connection = 1, generation = stub.controlSocket.
   return JSON.parse(replies[0].line);
 }
 
+async function callAsync(method, params, { connection = 1 } = {}) {
+  const id = ++nextId;
+  const before = stub.controlSocket.replies.length;
+  stub.emitControlRequest({ connection, generation: stub.controlSocket.generation, line: JSON.stringify({ id, method, params }) });
+  for (let i = 0; i < 10 && !stub.controlSocket.replies.slice(before).some((r) => r.connection === connection); i++) await tick();
+  const replies = stub.controlSocket.replies.slice(before).filter((r) => r.connection === connection);
+  assert.equal(replies.length, 1, `one reply to ${method}`);
+  return JSON.parse(replies[0].line);
+}
+
 function eventsFor(connection, from) {
   return stub.controlSocket.broadcasts.slice(from).filter((b) => b.connections.includes(connection)).map((b) => JSON.parse(b.line));
 }
@@ -41,7 +51,13 @@ function fresh() {
 test("hello, unknown methods and malformed lines", async () => {
   fresh();
   await controlOn();
-  assert.deepEqual(call("hello").result, { app: "Ardia", version: "1.0", protocol: 2 });
+  assert.deepEqual(call("hello").result, { app: "Ardia", version: "1.0", protocol: 4, minClientProtocol: 4 });
+  assert.deepEqual(call("hello", { protocol: 4 }).result.protocol, 4, "a client that names the current protocol is welcome");
+  assert.equal(call("hello", { protocol: 9 }).result.protocol, 4, "a newer client gets the app's protocol and decides for itself");
+  const old = call("hello", { protocol: 3 });
+  assert.equal(old.error.code, "unsupported_protocol");
+  assert.match(old.error.message, /speaks control protocol 3, and Ardia 1\.0 needs 4 or later: update the command/);
+  assert.equal(call("hello", { protocol: "4" }).error.code, "bad_request");
   const unknown = call("dance");
   assert.equal(unknown.error.code, "unknown_method");
   const bad = call(null, null, { raw: "not json" });
@@ -115,7 +131,7 @@ test("windows lists normal and Little Ardia windows, never private ones, and red
   S().newTab(w, { url: "ardia://history?q=secret#frag" });
   S().createWindow({ kind: "private", url: "https://secret.example/" });
   const little = S().createWindow({ kind: "small", url: "https://c.example/" });
-  const listed = call("windows").result;
+  const listed = (await callAsync("windows")).result;
   assert.deepEqual(listed.map((x) => [x.id, x.kind]).sort(), [[w, "normal"], [little, "little"]].sort());
   const main = listed.find((x) => x.id === w);
   assert.equal(main.profile, S().windows[w].profileId);
@@ -123,8 +139,29 @@ test("windows lists normal and Little Ardia windows, never private ones, and red
   const history = main.tabs.find((t) => t.url.startsWith("ardia://history"));
   assert.deepEqual([history.url, history.title], ["ardia://history", "History"]);
   assert.equal(main.tabs.filter((t) => t.active).length, 1);
-  for (const t of main.tabs) assert.deepEqual(Object.keys(t).sort(), ["active", "group", "id", "pinned", "profile", "title", "url"]);
+  for (const t of main.tabs) assert.deepEqual(Object.keys(t).sort(), ["active", "group", "id", "pageGeneration", "pinned", "profile", "targetId", "title", "url"]);
   assert.ok(!JSON.stringify(listed).includes("secret"));
+});
+
+test("windows names each tab's DevTools target so the ardia command never pairs tabs by address", async () => {
+  fresh();
+  await controlOn();
+  const w = S().createWindow({ url: "https://same.example/" });
+  const twin = S().newTab(w, { url: "https://same.example/" });
+  const first = model.viewTabIds(S(), w).find((id) => id !== twin);
+  const seen = [];
+  globalThis.acTestCliTargets = (id) => {
+    seen.push(id);
+    return id === twin ? { targetId: "TWIN", pageGeneration: 2 } : { targetId: null, pageGeneration: 0 };
+  };
+  try {
+    const tabs = (await callAsync("windows")).result.find((x) => x.id === w).tabs;
+    assert.deepEqual(tabs.find((t) => t.id === twin), { ...tabs.find((t) => t.id === twin), targetId: "TWIN", pageGeneration: 2 });
+    assert.equal(tabs.find((t) => t.id === first).targetId, null);
+    assert.ok(seen.includes(twin) && seen.includes(first));
+  } finally {
+    delete globalThis.acTestCliTargets;
+  }
 });
 
 test("a Peek tab isn't part of its window's tabs", () => {
@@ -210,7 +247,7 @@ test("run shows the pill and the other methods don't", async () => {
   S().createWindow({ url: "https://a.example/" });
   useCli.setState({ server: { state: "on", connections: 0, generation: 1, file: "" } });
   useCliIndicator.setState({ shown: false });
-  call("windows");
+  await callAsync("windows");
   call("hello");
   assert.equal(useCliIndicator.getState().shown, false);
   call("run", { command: "setAppearance", arg: "light" });
@@ -219,6 +256,55 @@ test("run shows the pill and the other methods don't", async () => {
   assert.equal(useCliIndicator.getState().shown, true);
   useCli.setState({ server: { state: "off", connections: 0, generation: 2, file: "" } });
   assert.equal(useCliIndicator.getState().shown, false);
+});
+
+test("organizing tabs and groups never shows the pill: only run does", async () => {
+  fresh();
+  await controlOn();
+  const windowId = S().createWindow({ url: "https://a.example/" });
+  const tab = S().windows[windowId].tabIds?.[0] ?? Object.keys(S().tabs).find((id) => S().tabs[id].windowId === windowId);
+  useCli.setState({ server: { state: "on", connections: 0, generation: 4, file: "" } });
+  useCliIndicator.setState({ shown: false });
+  call("hello", { caller: { name: "Claude Code" } });
+  assert.equal((await callAsync("workspace", {})).result.windows.length > 0, true);
+  const made = await callAsync("apply", { ops: [{ op: "group.create", tabs: [tab], name: "Work", color: "purple" }] });
+  assert.equal(made.result.ok, true);
+  assert.equal(made.result.groups[0].color, "purple");
+  await callAsync("apply", { ops: [{ op: "group.update", group: "Work", name: "Play" }] });
+  await tick();
+  assert.equal(useCliIndicator.getState().shown, false);
+  call("run", { command: "setAppearance", arg: "light" });
+  assert.equal(useCliIndicator.getState().shown, true);
+  S().updateSettings({ cliControl: false });
+  useCli.setState({ server: { state: "off", connections: 0, generation: 5, file: "" } });
+  assert.equal(useCliIndicator.getState().shown, false);
+});
+
+test("the pill names the app that runs the command, the most recent one, and forgets it once it hides", async (t) => {
+  fresh();
+  await controlOn();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  S().createWindow({ url: "https://a.example/" });
+  useCli.setState({ server: { state: "on", connections: 0, generation: 5, file: "" } });
+  useCliIndicator.setState({ shown: false, caller: null });
+  const agent = ++nextConnection;
+  const terminal = ++nextConnection;
+  const old = ++nextConnection;
+  call("hello", { caller: { name: " Claude\u202e Code\n", app: "/Applications/T3 Code.app" } }, { connection: agent });
+  assert.equal(useCliIndicator.getState().caller, null);
+  call("run", { command: "setAppearance", arg: "light" }, { connection: agent });
+  assert.deepEqual(useCliIndicator.getState(), { shown: true, caller: { name: "Claude Code", app: "/Applications/T3 Code.app" } });
+  call("hello", { caller: { name: "Terminal", app: "/System/Applications/Utilities/Terminal.app" } }, { connection: terminal });
+  assert.deepEqual(call("caller", undefined, { connection: terminal }).result, { ok: true });
+  assert.deepEqual(useCliIndicator.getState().caller, { name: "Terminal", app: "/System/Applications/Utilities/Terminal.app" });
+  t.mock.timers.tick(3000);
+  assert.equal(useCliIndicator.getState().shown, false);
+  assert.equal(useCliIndicator.getState().caller?.name, "Terminal");
+  useCli.setState({ server: { state: "on", connections: 1, generation: 7, file: "" } });
+  call("hello", undefined, { connection: old });
+  assert.deepEqual(call("caller", undefined, { connection: old }).result, { ok: false });
+  assert.deepEqual(useCliIndicator.getState(), { shown: true, caller: null });
+  useCli.setState({ server: { state: "on", connections: 0, generation: 8, file: "" } });
 });
 
 test("the pill shows for a socket run while CDP is external, and Stop hides it at once", async () => {
@@ -294,142 +380,4 @@ test("the pill stays up until the run's reply is written", async (t) => {
   t.mock.timers.tick(1);
   assert.equal(useCliIndicator.getState().shown, false);
   S().updateSettings({ cliControl: false });
-});
-
-const { resetControlledForTests } = await import("../app/cliControlled.ts");
-const settle = async () => {
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
-};
-
-test("controlling marks only the announced tab, with the controller's name, and holds it 3 s after it ends", async (t) => {
-  fresh();
-  resetControlledForTests();
-  await controlOn();
-  const w = S().createWindow({ url: "https://a.example/" });
-  const driven = model.activeTabId(S(), w);
-  S().newTab(w, { url: "https://a.example/" });
-  const other = model.activeTabId(S(), w);
-  assert.notEqual(other, driven);
-  globalThis.acTestTabTargets = { [driven]: "T-driven", [other]: "T-other" };
-  useCli.setState({ server: { state: "on", port: 1, connections: 1, generation: 5, file: "" } });
-  useCliIndicator.setState({ shown: false, tabs: {} });
-  assert.deepEqual(call("controlling", { controller: "Claude", targets: [{ targetId: "T-driven", url: "https://a.example/" }] }, { connection: 7 }).result, { ok: true });
-  await settle();
-  assert.deepEqual(useCliIndicator.getState().tabs, { [driven]: "Claude" });
-  assert.equal(useCliIndicator.getState().shown, false);
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  stub.emitControlClose(7);
-  await settle();
-  assert.deepEqual(useCliIndicator.getState().tabs, { [driven]: "Claude" });
-  t.mock.timers.tick(3000);
-  assert.deepEqual(useCliIndicator.getState().tabs, {});
-  t.mock.timers.reset();
-  delete globalThis.acTestTabTargets;
-});
-
-test("an unnamed client is ardia, a bad announcement is refused, and turning control off clears the marks at once", async () => {
-  fresh();
-  resetControlledForTests();
-  await controlOn();
-  const w = S().createWindow({ url: "https://b.example/" });
-  const tab = model.activeTabId(S(), w);
-  globalThis.acTestTabTargets = { [tab]: "T-b" };
-  useCli.setState({ server: { state: "on", port: 1, connections: 1, generation: 6, file: "" } });
-  assert.equal(call("controlling", { targets: "nope" }, { connection: 8 }).error.code, "bad_request");
-  call("controlling", { targets: [{ targetId: "T-b", url: "https://elsewhere.example/" }] }, { connection: 8 });
-  await settle();
-  assert.deepEqual(useCliIndicator.getState().tabs, { [tab]: "ardia" });
-  S().updateSettings({ cliControl: false });
-  useCli.setState({ server: { state: "off", connections: 0, generation: 7, file: "" } });
-  await settle();
-  assert.deepEqual(useCliIndicator.getState().tabs, {});
-  delete globalThis.acTestTabTargets;
-});
-
-test("a CDP client that never announces keeps the window pill; one that announces doesn't", async (t) => {
-  fresh();
-  resetControlledForTests();
-  await controlOn();
-  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
-  S().createWindow({ url: "https://c.example/" });
-  useCliIndicator.setState({ shown: false, tabs: {} });
-  useCli.setState({ server: { state: "on", port: 1, connections: 1, generation: 8, file: "" } });
-  assert.equal(useCliIndicator.getState().shown, false);
-  t.mock.timers.tick(1500);
-  assert.equal(useCliIndicator.getState().shown, true);
-  call("controlling", { targets: [] }, { connection: 9 });
-  await settle();
-  assert.equal(useCliIndicator.getState().shown, true);
-  t.mock.timers.tick(3000);
-  assert.equal(useCliIndicator.getState().shown, false);
-  S().updateSettings({ cliControl: false });
-});
-
-async function callLater(method, params, connection = 1) {
-  const id = ++nextId;
-  const before = stub.controlSocket.replies.length;
-  stub.emitControlRequest({ connection, generation: stub.controlSocket.generation, line: JSON.stringify({ id, method, params }) });
-  await settle();
-  const replies = stub.controlSocket.replies.slice(before).filter((r) => r.connection === connection);
-  assert.equal(replies.length, 1, `one reply to ${method}`);
-  return JSON.parse(replies[0].line);
-}
-
-test("closeWindow closes the window an agent made, by its id or by a CDP target, and takes its tab with it", async () => {
-  fresh();
-  resetControlledForTests();
-  await controlOn();
-  S().updateSettings({ shareTabsAcrossWindows: true });
-  const mine = S().createWindow({ url: "https://mine.example/" });
-  S().newTab(mine, { url: "https://mine-later.example/", background: true });
-  const made = S().createWindow({ url: "https://agent.example/", chromeWindow: "cw-socket" });
-  const agentTab = S().windows[made].tabIds.find((id) => S().tabs[id].url === "https://agent.example/");
-  globalThis.acTestTabTargets = { [agentTab]: "T-agent" };
-  assert.equal((await callLater("closeWindow", {})).error.code, "bad_request");
-  assert.equal((await callLater("closeWindow", { window: "nope" })).error.code, "no_window");
-  assert.deepEqual((await callLater("closeWindow", { target: "T-agent", url: "https://agent.example/" })).result, { ok: true, window: made });
-  assert.equal(S().windows[made], undefined);
-  assert.deepEqual(Object.values(S().tabs).map((t) => t.url).sort(), ["https://mine-later.example/", "https://mine.example/"]);
-  const other = S().createWindow({ url: "https://other.example/" });
-  assert.deepEqual((await callLater("closeWindow", { window: other })).result, { ok: true, window: other });
-  assert.equal(S().windows[other], undefined);
-  assert.ok(S().windows[mine]);
-  delete globalThis.acTestTabTargets;
-  S().updateSettings({ shareTabsAcrossWindows: false });
-});
-
-test("openWindow opens a background window in the named profile and answers with its tab's CDP target", async () => {
-  fresh();
-  resetControlledForTests();
-  await controlOn();
-  S().createWindow({ url: "https://mine.example/" });
-  const bel = S().createProfile({ name: "Bel" });
-  globalThis.acTestTabTargets = new Proxy({}, { get: (_t, id) => `T-${String(id)}` });
-  assert.equal((await callLater("openWindow", { profile: "Nope" })).error.code, "no_window");
-  assert.equal((await callLater("openWindow", { profile: "bel", url: "javascript:alert(1)" })).error.code, "bad_request");
-  const opened = (await callLater("openWindow", { profile: "bel", url: "https://agent.example/" })).result;
-  assert.equal(S().windows[opened.window].profileId, bel);
-  assert.equal(S().tabs[opened.tab].url, "https://agent.example/");
-  assert.equal(opened.target, `T-${opened.tab}`);
-  delete globalThis.acTestTabTargets;
-});
-
-test("the windows of driven tabs are told to the engine, so they never count as occluded", async (t) => {
-  fresh();
-  resetControlledForTests();
-  await controlOn();
-  const w = S().createWindow({ url: "https://drive.example/" });
-  const tab = model.activeTabId(S(), w);
-  globalThis.acTestTabTargets = { [tab]: "T-drive" };
-  useCli.setState({ server: { state: "on", port: 1, connections: 1, generation: 9, file: "" } });
-  call("controlling", { targets: [{ targetId: "T-drive", url: "https://drive.example/" }] }, { connection: 11 });
-  await settle();
-  assert.deepEqual(globalThis.acTestAgentWindows, [w]);
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  stub.emitControlClose(11);
-  await settle();
-  t.mock.timers.tick(3000);
-  t.mock.timers.reset();
-  assert.deepEqual(globalThis.acTestAgentWindows, []);
-  delete globalThis.acTestTabTargets;
 });

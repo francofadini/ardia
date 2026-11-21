@@ -46,13 +46,12 @@ export const settingsInk = {
   onAccentSecondary: "rgba(255,255,255,0.8)",
   knobOutline: "rgba(0,0,0,0.25)",
   thumbBorder: "rgba(0,0,0,0.2)",
-  customSwatch: "#8E8E93",
 } as const;
 
 export const settingsType = {
-  extensionTitle: font.large,
-  lead: font.small,
-  code: display.code,
+  get extensionTitle() { return font.large; },
+  get lead() { return font.small; },
+  get code() { return display.code; },
 } as const;
 
 export const settingsMotion = {
@@ -85,7 +84,41 @@ export const miniWindow: Record<"s" | "m" | "l", MiniWindowGeometry> = {
   l: { scale: 0.5, pad: space.m, gap: space.xs, side: "26%", sideTop: space.ml, sideFieldTop: space.xs, bar: 7, barGap: space.xs, tab: 10, tabsLeft: space.xxxl, sideField: 10, toolbar: 16, toolbarField: 9, nav: { width: 18, height: 5 } },
 };
 
+export const paneTints = {
+  gray: "#8E8E93",
+  blue: "#0A84FF",
+  orange: "#FF9500",
+  indigo: "#5856D6",
+  purple: "#AF52DE",
+  pink: "#FF2D55",
+  teal: "#30B0C7",
+  ink: "#FFFFFF",
+} as const;
+
+export const paneTile = { size: 20, radius: 5, symbol: 11 } as const;
+
 export const settingsLayout = { emptyTop: 40, sidebarWidth: 214, paneMaxWidth: 600, paneBottom: 40 } as const;
+
+export const choicePreview = {
+  tabRows: [1, 0.85, 0.95, 0.7],
+  shortTabRows: [1, 0.8, 0.9],
+  switcherCards: [false, true, false],
+  resultLines: [0.9, 0.6],
+  pageLines: [0.9, 0.75, 0.85, 0.6, 0.8],
+  scale: 0.5,
+  gap: space.xs,
+  switcherCard: 24,
+  commandField: 10,
+  line: 4,
+  litBorder: 1.5,
+  litAlpha: "33",
+  pagePad: space.s,
+  belowToolbar: 22,
+  scrollMark: 10,
+  strip: 3,
+  stripTop: 3,
+  stripInset: 3,
+} as const;
 
 export const pictureChoice = { m: 84, l: 104, icon: 70, iconWidth: 72 } as const;
 

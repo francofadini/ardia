@@ -51,5 +51,10 @@ dist/
 
 scripts/.notary.env
 *.p8
-apps/cli/ardia_cli/vendor/
+
+packages/phone/ios/ArdiaKit/.build/
+packages/phone/ios/ArdiaKit/.swiftpm/
+packages/phone/ios/ArdiaTalk/.build/
+packages/phone/ios/ArdiaTalk/.swiftpm/
 __pycache__/
+apps/browser/sim-out/

@@ -5,6 +5,7 @@ repo=$(cd "$here/../../.." && pwd)
 staged=${ARDIACORE_STAGE_DIR:-$repo/apps/browser/build-ardiacore/ArdiaCoreFramework}/"Chromium Framework.framework"
 frameworks="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"
 mkdir -p "$frameworks"
+rm -rf "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/ArdiaFairPlay.app"
 stamp="$DERIVED_FILE_DIR/ardiacore-embedded.stamp"
 mkdir -p "$DERIVED_FILE_DIR"
 identity="${EXPANDED_CODE_SIGN_IDENTITY:--}"

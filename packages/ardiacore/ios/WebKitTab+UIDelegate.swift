@@ -2,6 +2,13 @@ import AppKit
 import WebKit
 
 extension WebKitTab {
+  @objc(_webViewFullscreenMayReturnToInline:)
+  func webViewFullscreenMayReturnToInline(_ webView: WKWebView) {
+    guard !closed, webView === self.webView else { return }
+    let fromOtherApp = ArdiaChromeWindowHost.activateForPictureInPictureReturn()
+    emit("activateRequest", ["reason": "pictureInPicture", "fromOtherApp": fromOtherApp])
+  }
+
   func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo,
                type: WKMediaCaptureType, decisionHandler: @escaping (WKPermissionDecision) -> Void) {
     let kinds: [String]

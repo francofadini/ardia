@@ -1,4 +1,5 @@
 import AppKit
+import ArdiaCore
 import ExpoModulesCore
 
 public class AppWindowsModule: Module {
@@ -26,6 +27,13 @@ public class AppWindowsModule: Module {
       self.lifetime.end()
     }
 
+    Function("windowCornerRadius") { () -> Double in Double(InterfaceScale.rootLength(fromWindow: ArdiaChromeWindowHost.windowCornerRadius)) }
+    Function("drawnWindowCornerRadius") { () -> Double in Double(InterfaceScale.rootLength(fromWindow: ArdiaChromeWindowHost.drawnWindowCornerRadius)) }
+    AsyncFunction("frameCornerRadius") { (id: String) -> Double in
+      guard let window = WindowManager.shared.window(id) else { return 0 }
+      return Double(InterfaceScale.rootLength(fromWindow: ArdiaChromeWindowHost.frameCornerRadius(of: window)))
+    }.runOnQueue(.main)
+
     AsyncFunction("openWindow") { (id: String, options: OpenWindowOptions) in
       WindowManager.shared.open(id: id, options, focus: options.focus)
     }.runOnQueue(.main)
@@ -36,8 +44,8 @@ public class AppWindowsModule: Module {
     AsyncFunction("setTrafficLightsCenter") { (id: String, center: CGPoint?, trailing: Bool) in
       WindowManager.shared.setTrafficLightsCenter(id: id, center: center, trailing: trailing)
     }.runOnQueue(.main)
-    AsyncFunction("watchSidebarEdge") { (id: String, on: Bool, hold: Double, right: Bool) in
-      SidebarEdgeWatcher.shared.watch(id: id, on: on, hold: CGFloat(hold), right: right)
+    AsyncFunction("watchSidebarEdge") { (id: String, on: Bool, hold: Double, right: Bool, whilePressed: Bool) in
+      SidebarEdgeWatcher.shared.watch(id: id, on: on, hold: CGFloat(hold), right: right, whilePressed: whilePressed)
     }.runOnQueue(.main)
     AsyncFunction("focusWindow") { (id: String) in WindowManager.shared.focus(id: id) }.runOnQueue(.main)
     AsyncFunction("restoreFullScreen") { (ids: [String], focus: String?) in
@@ -80,6 +88,12 @@ public class AppWindowsModule: Module {
     AsyncFunction("windowFrame") { (id: String) -> [Double]? in
       guard let f = WindowManager.shared.window(id)?.frame else { return nil }
       return [f.minX, f.minY, f.width, f.height]
+    }.runOnQueue(.main)
+    AsyncFunction("windowGeometry") { (id: String) -> [String: Any]? in WindowManager.shared.geometry(id: id) }.runOnQueue(.main)
+    AsyncFunction("setWindowFrame") { (id: String, frame: CGRect) -> [String: Any]? in WindowManager.shared.setFrame(id: id, frame: frame) }.runOnQueue(.main)
+    AsyncFunction("setWindowZoomed") { (id: String, on: Bool) -> [String: Any]? in WindowManager.shared.setZoomed(id: id, on: on) }.runOnQueue(.main)
+    AsyncFunction("setWindowFullScreen") { (id: String, on: Bool, promise: Promise) in
+      WindowManager.shared.setFullScreen(id: id, on: on) { promise.resolve($0) }
     }.runOnQueue(.main)
     AsyncFunction("dragPreviewEnd") { (windowId: String?, frame: CGRect?) in
       DragPreview.shared.end(windowId: windowId, fallback: frame)

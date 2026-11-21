@@ -4,16 +4,18 @@ import {
   engineById,
   findBang,
   prepareSuggestions,
+  type RemoteSite,
   type SearchEngine,
   type SearchScope,
   type SuggestionResult,
 } from "@ardia/core";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { noteSiteSuggestionShown } from "../../state/telemetry/inlineCompletionCounts";
 import { bookmarksByUrl } from "../../state/bookmarks/bookmarks";
 import { useMenuBarRevision } from "../../state/commands/commandShortcuts";
 import { useSettings } from "../../state/browser/hooks";
-import { useBookmarkEngine, useBookmarks } from "../../state/bookmarks/hooks";
-import { useProfileHistory } from "../../state/history/hooks";
+import { useBookmarkEngine, useBookmarks, useBookmarksShown } from "../../state/bookmarks/hooks";
+import { useSuggestionHistory } from "../../state/history/hooks";
 import { useTabs } from "../../state/tabs/hooks";
 import { defaultSearchEngine, searchEngines } from "../../state/settings/settings";
 import type { Bookmarks } from "../../state/browser/types";
@@ -22,13 +24,18 @@ import { useBangs } from "../../state/omnibox/bangs";
 import { useBarExtensions } from "./extensions";
 import { historyHosts } from "../../state/omnibox/knownHosts";
 import { useProviderSections } from "./useProviderSections";
+import { barFieldMarks } from "../../state/omnibox/barMarks";
+import { browserSuggestFetch, remoteSuggestionsAllowed, suggestProfileKey } from "../../state/omnibox/suggestTransport";
+import { during } from "../../state/app/jobActivity";
 
 const NO_REMOTE: string[] = [];
+const NO_SITES: RemoteSite[] = [];
 const EMPTY: SuggestionResult = { items: [], completion: "" };
 const WARM_SLICE_MS = 4;
 
 type BookmarkRow = { url: string; title: string; favicon: string | null };
 const bookmarkCache = new WeakMap<Bookmarks, Map<string, BookmarkRow[]>>();
+const NO_BOOKMARKS: BookmarkRow[] = [];
 
 function engineBookmarks(b: Bookmarks, engine: string): BookmarkRow[] {
   let perEngine = bookmarkCache.get(b);
@@ -69,19 +76,20 @@ export function useSuggestions({
   preventInline?: boolean;
 }): SuggestionResult {
   const allTabs = useTabs((tabs) => tabs);
-  const history = useProfileHistory(profileId);
+  const historyOn = useSettings((st) => st.commandBarHistory);
+  const history = useSuggestionHistory(historyOn ? profileId : null);
   const bookmarks = useBookmarks((b) => b);
   const bookmarkEngine = useBookmarkEngine(windowId);
   const engines = useSettings((st) => searchEngines(st));
   const engine = useSettings((st) => defaultSearchEngine(st));
-  const preference = useSettings((st) => st.commandBarPreference);
   const suggestionsOn = useSettings((st) => st.searchSuggestions);
   const extensions = useBarExtensions(windowId);
   const shortcuts = useSettings((st) => st.shortcuts);
   const menuBar = useMenuBarRevision();
 
   const tabs = useMemo(() => Object.values(allTabs).filter((t) => t.profileId === profileId), [allTabs, profileId]);
-  const bookmarkRows = useMemo(() => engineBookmarks(bookmarks, bookmarkEngine), [bookmarks, bookmarkEngine]);
+  const showBookmarks = useBookmarksShown();
+  const bookmarkRows = useMemo(() => (showBookmarks ? engineBookmarks(bookmarks, bookmarkEngine) : NO_BOOKMARKS), [showBookmarks, bookmarks, bookmarkEngine]);
   const source = useMemo(() => ({ tabs, history, bookmarks: bookmarkRows }), [tabs, history, bookmarkRows]);
 
   useEffect(() => {
@@ -94,21 +102,26 @@ export function useSuggestions({
     return () => clearTimeout(timer);
   }, [source]);
 
-  const [remote, setRemote] = useState<{ text: string; list: string[] }>({ text: "", list: [] });
-  const fetcher = useRef(createSuggestFetcher({ fetch: (url, init) => fetch(url, init) })).current;
+  const [remote, setRemote] = useState<{ text: string; list: string[]; sites: RemoteSite[] }>({ text: "", list: [], sites: NO_SITES });
+  const suggestProfile = suggestProfileKey(profileId);
+  const remoteAllowed = remoteSuggestionsAllowed(profileId);
+  const fetcher = useMemo(() => createSuggestFetcher({ fetch: browserSuggestFetch(suggestProfile) }), [suggestProfile]);
+  useEffect(() => {
+    setRemote({ text: "", list: [], sites: NO_SITES });
+    return () => fetcher.cancel();
+  }, [fetcher]);
   const query = text.trim();
   const fromEngine = suggestEngine(scope, engines, engine);
   const bangs = useBangs(active && !scope && query.includes("!"));
   const bang = useMemo(() => (bangs ? findBang(query, bangs) : null), [bangs, query]);
   useEffect(() => {
     const q = query.replace(/^\?/, "").trim();
-    if (!active || !suggestionsOn || !q || bang || /^[a-z][a-z0-9+.-]*:\/\//i.test(q) || scope?.kind === "history" || scope?.kind === "provider") {
+    if (!active || !suggestionsOn || !remoteAllowed || !q || bang || /^[a-z][a-z0-9+.-]*:\/\//i.test(q) || scope?.kind === "history" || scope?.kind === "provider") {
       fetcher.cancel();
       return;
     }
-    fetcher.request(fromEngine, q, (list) => setRemote({ text: query, list }));
-  }, [active, suggestionsOn, query, bang, fromEngine, scope, fetcher]);
-  useEffect(() => () => fetcher.cancel(), [fetcher]);
+    fetcher.request(fromEngine, q, (list, sites) => setRemote({ text: query, list, sites }));
+  }, [active, suggestionsOn, remoteAllowed, query, bang, fromEngine, scope, fetcher]);
 
   const providers = useProviderSections({ text, active, scope, windowId, skip: !!bang });
 
@@ -119,12 +132,21 @@ export function useSuggestions({
     return remote.list.filter((s) => s.toLowerCase().startsWith(q));
   }, [remote, query]);
 
-  return useMemo(() => {
+  const remoteSites = useMemo(() => {
+    if (remote.text === query) return remote.sites;
+    const q = query.toLowerCase();
+    if (!remote.text || !q.startsWith(remote.text.toLowerCase())) return NO_SITES;
+    return remote.sites.filter((site) => site.title.toLowerCase().startsWith(q) || site.url.replace(/^https?:\/\/(www\.)?/i, "").toLowerCase().startsWith(q));
+  }, [remote, query]);
+
+  const result = useMemo(() => {
     if (!active || (!query && scope?.kind !== "provider")) return EMPTY;
-    return buildSuggestions(text, source, {
+    const started = performance.now();
+    const built = during("omniboxSuggest", () => buildSuggestions(text, source, {
       engine,
-      preference,
+      preference: "website",
       remote: remoteList,
+      remoteSites: scope ? NO_SITES : remoteSites,
       actions: currentBarActions(windowId),
       extensions,
       currentTabId,
@@ -133,6 +155,13 @@ export function useSuggestions({
       preventInline,
       bangs,
       providers,
-    });
-  }, [active, text, query, source, engine, preference, remoteList, windowId, extensions, shortcuts, menuBar, currentTabId, currentUrl, scope, preventInline, bangs, providers]);
+    }));
+    barFieldMarks.suggestions(performance.now() - started, text.length);
+    return built;
+  }, [active, text, query, source, engine, remoteList, remoteSites, windowId, extensions, shortcuts, menuBar, currentTabId, currentUrl, scope, preventInline, bangs, providers]);
+  const siteListed = !scope && remoteSites.some((site) => result.items.some((i) => i.kind === "page" && i.url === site.url && !i.tabId));
+  useEffect(() => {
+    if (siteListed) noteSiteSuggestionShown();
+  }, [siteListed, query]);
+  return result;
 }

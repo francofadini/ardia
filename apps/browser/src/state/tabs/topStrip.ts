@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { useMemo } from "react";
 import { useBrowser, type BrowserState } from "../browser/store";
 import { usePageProfileId } from "../browser/hooks";
 import { activeTabId, tabLabel, viewTabIds } from "../browser/model";
@@ -8,7 +8,7 @@ import { hiddenEmptyCard } from "../omnibox/newTabBarPolicy";
 import { groupLabel } from "../pins/tabGrouping";
 import { folderCell, folderIn, folderLabel, folderMembers, tileFolderOf } from "../pins/tileFolders";
 import { clickTab } from "../sidebar/actions";
-import { groupEntries } from "../sidebar/entries";
+import { entriesInputs, groupEntries, sameEntriesInputs, type EntriesInputs } from "../sidebar/entries";
 import { renameFolder } from "../sidebar/tileFolderUi";
 import { chooseFromMenu, type ChoiceItem } from "../app/menuChoice";
 import { entryKey, parseEntry } from "../sidebar/entryKey";
@@ -27,11 +27,11 @@ export function tuckTarget(s: BrowserState, windowId: string, profileId: string,
 
 
 export type StripMember = { kind: "tab"; id: string; group: string | null } | { kind: "split" | "folder"; id: string; tabIds: string[]; group: string | null };
-export type StripGroupEntry = { kind: "group"; id: string; collapsed: boolean; members: StripMember[] };
+export type StripGroupEntry = { kind: "group"; id: string; collapsed: boolean; members: StripMember[]; memberTabIds?: string[] };
 export type StripDock = { kind: "dock"; ids: string[]; members: Map<string, string[]> };
 export type StripEntry = StripDock | StripGroupEntry | StripMember;
 
-const stripMemo = new Map<string, { inputs: unknown[]; keys: string[]; entries: StripEntry[] }>();
+const stripMemo = new Map<string, { inputs: EntriesInputs; keys: string[]; entries: StripEntry[] }>();
 
 function parseStrip(keys: string[], previousDock: StripDock | undefined): StripEntry[] {
   const out: StripEntry[] = [];
@@ -79,9 +79,9 @@ function foldersUnderRoots(groups: BrowserState["groups"]): Map<string, string> 
 
 export function stripEntries(s: BrowserState, windowId: string, profileId: string): StripEntry[] {
   const key = `${windowId}|${profileId}`;
-  const inputs = [s.tabs, s.windows, s.groups, s.splits, s.settings.newTabOpens];
   const cached = stripMemo.get(key);
-  if (cached && cached.inputs.every((v, i) => v === inputs[i])) return cached.entries;
+  if (cached && sameEntriesInputs(s, cached.inputs)) return cached.entries;
+  const inputs = entriesInputs(s);
   const groups = groupIndex(s.groups);
   const folders = foldersUnderRoots(s.groups);
   const splits = splitIndex(s.splits);
@@ -154,6 +154,43 @@ export function folderMenuItems(s: BrowserState, groupId: string, activeId: stri
 
 export const useStripEntries = (windowId: string, profileId: string) => useBrowser((s) => stripEntries(s, windowId, profileId));
 
+const titleNeedsMemo = new Map<string, { tabs: BrowserState["tabs"]; order: string[] | undefined; signature: string }>();
+
+export function titleNeedsSignature(s: BrowserState, windowId: string, profileId: string): string {
+  const key = `${windowId}|${profileId}`;
+  const order = s.windows[windowId]?.tabIds;
+  const cached = titleNeedsMemo.get(key);
+  if (cached && cached.tabs === s.tabs && cached.order === order) return cached.signature;
+  const signature = computeTitleNeeds(s, windowId, profileId);
+  titleNeedsMemo.set(key, { tabs: s.tabs, order, signature });
+  if (titleNeedsMemo.size > 16) for (const k of titleNeedsMemo.keys()) if (!s.windows[k.split("|")[0]!]) titleNeedsMemo.delete(k);
+  return signature;
+}
+
+export function needingTitles(icons: readonly (readonly [id: string, icon: string])[]): string[] {
+  const seen = new Map<string, number>();
+  for (const [, icon] of icons) if (icon) seen.set(icon, (seen.get(icon) ?? 0) + 1);
+  return icons.filter(([, icon]) => !icon || seen.get(icon)! > 1).map(([id]) => id);
+}
+
+function computeTitleNeeds(s: BrowserState, windowId: string, profileId: string): string {
+  const icons: [string, string][] = [];
+  for (const id of viewTabIds(s, windowId, profileId)) {
+    const t = s.tabs[id];
+    if (!t || t.pin) continue;
+    icons.push([id, t.customIcon ?? t.favicon ?? ""]);
+  }
+  return needingTitles(icons).join("\n");
+}
+
+export function useStripTitleNeeds(windowId: string, profileId: string): (tabId: string) => boolean {
+  const signature = useBrowser((s) => titleNeedsSignature(s, windowId, profileId));
+  return useMemo(() => {
+    const needs = new Set(signature ? signature.split("\n") : []);
+    return (tabId: string) => needs.has(tabId);
+  }, [signature]);
+}
+
 export const useShownTabIdFor = (windowId: string, profileId: string) => useBrowser((s) => s.windows[windowId]?.activeTabIds[profileId] ?? "");
 
 export const useHasTuckTarget = (enabled: boolean, windowId: string, profileId: string, groupId: string) =>
@@ -208,7 +245,3 @@ export async function openTileFolderStripMenu(windowId: string, folderId: string
   if (choice === "rename") void renameFolder(windowId, folderId);
   else if (typeof choice === "object" && choice && useBrowser.getState().tabs[choice.tabId]) clickTab(windowId, choice.tabId);
 }
-
-const useStripOnto = create<{ key: string | null }>()(() => ({ key: null }));
-export const useStripOntoIs = (key: string | null) => useStripOnto((s) => s.key === key);
-export const setStripOnto = (key: string | null) => useStripOnto.setState({ key });

@@ -1,4 +1,5 @@
 import AppKit
+import ArdiaCore
 import Carbon.HIToolbox
 import ExpoModulesCore
 
@@ -38,11 +39,14 @@ final class WindowDragRegion: ExpoView {
       if event.type == .leftMouseUp {
         guard let down = self.doubleClickDown, event.window === self.window else { return event }
         self.doubleClickDown = nil
+        ArdiaHost.notePointer(event, swallowedBy: "windowDragRegion")
         if event.clickCount == 2 { self.doubleClick(event, down) }
         return nil
       }
       self.doubleClickDown = nil
       guard let place = self.pressPlace(event) else { return event }
+      if NSApp.isActive, NSApp.keyWindow == nil, !event.modifierFlags.contains(.command) { return event }
+      ArdiaHost.notePointer(event, swallowedBy: "windowDragRegion")
       OutsidePressArea.tellAreas(event)
       self.press(event, place, releaseFollows: true)
       return nil
@@ -64,7 +68,7 @@ final class WindowDragRegion: ExpoView {
           !event.modifierFlags.contains(.control),
           let frame = window.contentView?.superview, let hit = frame.hitTest(event.locationInWindow)
     else { return nil }
-    if hit === frame { return Self.onTitlebarTopEdge(window, frame, event.locationInWindow) ? .titlebarEdge : nil }
+    if hit === frame { return event.clickCount >= 2 && Self.onTitlebarTopEdge(window, frame, event.locationInWindow) ? .titlebarEdge : nil }
     guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return nil }
     if hit === self || (clickable && hit.isDescendant(of: self)) { return .region }
     let background = hit is NSClipView || (hit.superview as? NSClipView)?.documentView === hit
@@ -93,22 +97,31 @@ final class WindowDragRegion: ExpoView {
 
   private func press(_ event: NSEvent, _ place: PressPlace, releaseFollows: Bool) {
     guard let window else { return }
+    let leavesWindowBehind = event.modifierFlags.contains(.command)
+    if !NSApp.isActive, !leavesWindowBehind, !LaunchConfig.shared.background { NSApp.activate() }
     var key = NSApp.keyWindow
     while let k = key, k !== window { key = k.parent }
-    if key == nil, window.canBecomeKey, !event.modifierFlags.contains(.command) { window.makeKeyAndOrderFront(nil) }
+    if key == nil, window.canBecomeKey, !leavesWindowBehind { window.makeKeyAndOrderFront(nil) }
     if clickable, place == .region { return clickOrDrag(event, in: window) }
     if event.clickCount == 2 {
       if releaseFollows { doubleClickDown = place } else { doubleClick(event, place) }
       return
     }
+    ArdiaHost.beginPressLoop("windowDragRegion")
+    defer { ArdiaHost.endPressLoop() }
     window.performDrag(with: event)
   }
 
   private func clickOrDrag(_ down: NSEvent, in window: NSWindow) {
+    ArdiaHost.beginPressLoop("windowDragRegion")
+    defer { ArdiaHost.endPressLoop() }
     let until: Date = NSEvent.pressedMouseButtons & 1 == 0 ? Date() : .distantFuture
     let start = down.locationInWindow
-    while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: until, inMode: .eventTracking, dequeue: true),
-          next.type == .leftMouseDragged {
+    while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: until, inMode: .eventTracking, dequeue: true) {
+      if next.type == .leftMouseUp {
+        ArdiaHost.notePointer(next, swallowedBy: "windowDragRegion")
+        break
+      }
       if hypot(next.locationInWindow.x - start.x, next.locationInWindow.y - start.y) >= Self.dragDistance { return window.performDrag(with: down) }
     }
     onRegionClick([:])

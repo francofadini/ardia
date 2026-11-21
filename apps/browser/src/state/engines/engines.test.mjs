@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chosenEngine, engineForUrl, engineMark, protectedVideoSite, recommendedEngineFor, ruleFor, siteOf, tabEngine, typedNavigationEngine, visitRecorder } from "./engines.ts";
+import { chosenEngine, engineForUrl, engineMark, offersEngineChoice, protectedVideoSite, recommendedEngineFor, ruleFor, siteOf, tabEngine, typedNavigationEngine, visitRecorder } from "./engines.ts";
 import { makeTab, snapshotTab } from "../browser/model.ts";
 import { carriableCookies, cookieAddresses } from "./signInCookies.ts";
 
@@ -75,6 +75,16 @@ test("streaming sites open in WebKit when the setting is on, over https, subdoma
   assert.equal(typedNavigationEngine(on, on.tabs.page, "https://www.disneyplus.com/"), "webkit");
   assert.equal(recommendedEngineFor(on, "https://www.netflix.com/"), "webkit");
   assert.equal(recommendedEngineFor(on, "https://example.com/"), "chromium");
+});
+
+test("Spotify's player opens in WebKit with the streaming sites, and a rule still wins", () => {
+  const spotify = "https://open.spotify.com/track/1";
+  assert.equal(engineForUrl(state([], { protectedVideoInWebKit: true }), spotify), "webkit");
+  assert.equal(recommendedEngineFor(state([], { protectedVideoInWebKit: true }), spotify), "webkit");
+  assert.equal(engineForUrl(state([], { protectedVideoInWebKit: true }), "http://open.spotify.com/"), "chromium");
+  assert.equal(engineForUrl(state([], { protectedVideoInWebKit: true }), "https://www.spotify.com/"), "chromium");
+  assert.equal(engineForUrl(state([], { protectedVideoInWebKit: true, websiteEngines: { "https://open.spotify.com": "chromium" } }), spotify), "chromium");
+  assert.equal(engineForUrl(state([], { protectedVideoInWebKit: false }), spotify), "chromium");
 });
 
 test("a website rule wins over the streaming default", () => {
@@ -244,4 +254,8 @@ test("partitioned, nameless and expired cookies stay behind; session cookies com
   const expired = cookie({ name: "e", expires: now - 1 });
   const nameless = cookie({ name: "" });
   assert.deepEqual(carriableCookies([kept, session, partitioned, opaque, expired, nameless], now), [kept, session]);
+});
+
+test("the Mac always offers a page engine choice, so Site Controls keeps Opens in for every page, local files included", () => {
+  assert.equal(offersEngineChoice(), true);
 });

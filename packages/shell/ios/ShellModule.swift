@@ -16,11 +16,18 @@ public class ShellModule: Module {
 
     OnCreate {
       _ = installTextFieldSelectAll
+      _ = installViewSelectAll
       _ = installSubmenuAction
+      _ = installHoverAfterWindowMoves
       _ = installInputSourceKeys
       _ = installScrollViewInsetFix
+      _ = installStripWheel
       _ = installOutsidePressMonitor
       _ = installWindowMoveFallback
+      _ = installCenteredResize
+      FullScreenLifecycle.shared.stateOf = { ArdiaChromeWindowHost.windowIsFullScreen($0) }
+      FullScreenLifecycle.shared.settledByCheck = { WindowManager.shared.recordFullScreen($0, on: $1) }
+      FullScreenLifecycle.shared.start()
       self.lifetime.begin(self) {
         self.appearanceObservation?.invalidate()
         self.appearanceObservation = nil
@@ -40,6 +47,8 @@ public class ShellModule: Module {
           ShellEvents.send(.app, ["type": "appearance", "dark": ShellModule.isDark])
         }
         self.observeForSidebar()
+        LittleArdiaHandoff.shared.start()
+        LittleArdiaHotKey.shared.start()
         ArdiaHost.quitCancelledHandler = { ShellEvents.send(.app, ["type": "quitCancelled"]) }
         Self.quitCancelledOwner = ObjectIdentifier(self)
       }

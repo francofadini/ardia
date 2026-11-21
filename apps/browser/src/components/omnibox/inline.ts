@@ -45,6 +45,11 @@ function preventsInline(typed: string, shown: string, next: string, edit: EditCo
   return onlyRemoved(old, next) || length(next) - length(typed) > 1;
 }
 
+export function previewFieldChange(typed: string, shown: string, preview: string | null, next: string, pending: readonly PendingInline[], edit?: EditContext): FieldChange {
+  const change = fieldChange(typed, shown, next, pending, edit);
+  return preview === null || change.echo ? change : fieldChange(preview, "", next, [], edit);
+}
+
 export function acceptsCompletion(typed: string, shown: string, selection: Selection, pending: readonly PendingInline[]): boolean {
   return !!shown && pending.length === 0 && selection.start === selection.end && selection.start === typed.length + shown.length;
 }
@@ -54,6 +59,8 @@ export function completionToWrite(typed: string, wanted: string, shown: string, 
   const showing = last && !last.orphaned && last.typed === typed ? last.completion : shown;
   return wanted === showing ? null : { typed, completion: wanted };
 }
+
+export const settlesInline = (written: boolean, completion: string, caretAllows: boolean) => written && (!completion || caretAllows);
 
 export function withoutFirst(pending: readonly PendingInline[], inline: Inline): PendingInline[] {
   const i = pending.findIndex((p) => p.typed === inline.typed && p.completion === inline.completion);

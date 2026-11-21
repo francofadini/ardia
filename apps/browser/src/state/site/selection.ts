@@ -1,4 +1,4 @@
-import { setSearchEngineName, setSelectionPopover } from "../../platform/pageOptions";
+import { setSearchEngineName, setSelectionPopover, type SearchEngineIdentity } from "../../platform/pageOptions";
 import { chooseTextFragment, cleanUrl, searchUrl, withTextFragment, type SelectionContext } from "@ardia/core";
 import { copyText } from "../../platform/clipboard";
 import { create } from "zustand";
@@ -9,6 +9,12 @@ import { defaultSearchEngine } from "../settings/settings";
 import { showToast } from "../app/toasts";
 import { openModeFor } from "../bookmarks/actions";
 import { openFromPage } from "../tabs/openFromPage";
+import { awaitsFirstPage } from "../tabs/pendingAddress";
+import { noteSelectedTabUrlsCopied, noteUrlCopied } from "../telemetry/urlCopies";
+import { selectedTabIds } from "../pins/organize";
+import { copyLinks } from "../bookmarks/linkMenus";
+import { tabTitle } from "../browser/model";
+import type { BrowserState } from "../browser/store";
 
 export type { PageSelection };
 
@@ -22,11 +28,14 @@ export function setPageSelection(tabId: string, selection: PageSelection | null)
 const store = () => useBrowser.getState();
 
 export function startSelectionTools() {
-  let name = "";
+  let sent: SearchEngineIdentity | null = null;
   let popover: boolean | null = null;
   const sync = () => {
-    const next = defaultSearchEngine(store().settings).name;
-    if (next !== name) void setSearchEngineName((name = next));
+    const { name, keyword, url } = defaultSearchEngine(store().settings);
+    if (!sent || sent.name !== name || sent.keyword !== keyword || sent.url !== url) {
+      sent = { name, keyword, url };
+      void setSearchEngineName(sent);
+    }
     const enabled = store().settings.showSelectionSearch;
     if (enabled === popover) return;
     popover = enabled;
@@ -34,7 +43,7 @@ export function startSelectionTools() {
     if (!enabled) usePageSelection.setState({}, true);
   };
   sync();
-  return useBrowser.subscribe((s, prev) => s.settings !== prev.settings && sync());
+  return useBrowser.subscribeTo(["settings"], (s, prev) => s.settings !== prev.settings && sync());
 }
 
 export type ClickModifiers = { metaKey?: boolean; shiftKey?: boolean; altKey?: boolean; middle?: boolean };
@@ -92,11 +101,25 @@ export async function copyLinkToSelection(tabId: string) {
 
 const HAS_SELECTION = `post("result", JSON.stringify(!!String(getSelection() || "").trim()))`;
 
+export function copySelectedTabUrls(s: BrowserState, windowId: string, markdown: boolean): boolean {
+  if ((s.selection[windowId]?.length ?? 0) < 2) return false;
+  const links = selectedTabIds(s, windowId)
+    .map((id) => s.tabs[id])
+    .filter((t) => !!t?.url)
+    .map((t) => ({ url: t!.url, title: tabTitle(t!) }));
+  if (links.length < 2) return false;
+  copyLinks(links, markdown);
+  noteSelectedTabUrlsCopied();
+  showToast(windowId, `Copied ${links.length} Links`, undefined, { icon: "link" });
+  return true;
+}
+
 export async function copyPageUrl(tabId: string) {
   const tab = store().tabs[tabId];
   if (!tab?.url) return;
   const clean = cleanUrl(tab.url);
   copyText(clean);
+  noteUrlCopied(awaitsFirstPage(tabId));
   const title = clean !== tab.url ? "Copied a clean link without trackers" : "Copied Current URL";
   const web = webviews.get(tabId);
   const selected = /^https?:/.test(tab.url) && web ? await web.evaluate<boolean>(HAS_SELECTION) : false;

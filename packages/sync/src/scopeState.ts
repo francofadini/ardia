@@ -16,7 +16,7 @@ export type SnapshotFile = {
 };
 export type SyncFile = LogFile | SnapshotFile;
 
-type FileMeta = { d: string; k: "log" | "snapshot" | "bad"; s?: number; vv?: Record<string, number>; at: number };
+type FileMeta = { d: string; k: "log" | "snapshot" | "bad"; s?: number; vv?: Record<string, number>; at: number; b?: number };
 
 export type ScopeState = {
   records: Record<string, SyncRecord>;
@@ -72,6 +72,7 @@ export type Extraction = {
   ignore?: (key: string) => boolean;
   republish?: (key: string) => boolean;
   published?: (keys: Set<string>) => void;
+  json?: (key: string, value: unknown) => string | undefined;
 };
 
 export type ApplyRecords = {
@@ -92,6 +93,7 @@ export interface Adapter {
     known: (key: string) => boolean,
     remote: (key: string) => unknown,
     stamp: (key: string) => HLC | undefined,
+    baseJson: (key: string) => string | undefined,
   ): Extraction | null | Promise<Extraction | null>;
   apply(visible: Map<string, unknown>, changed: Set<string>, base: (key: string) => unknown, records: ApplyRecords): boolean | void | Promise<boolean | void>;
   editedAt?(value: unknown): number | undefined;
@@ -103,6 +105,8 @@ export type ScopeOptions = {
   expired?: (key: string, value: unknown, now: number) => boolean;
   tombstoneTTL?: number;
   compactAfterFiles?: number;
+  compactAfterLogs?: number;
+  compactLogShare?: number;
   compactInterval?: number;
   pruneGrace?: number;
   damagedGiveUp?: number;

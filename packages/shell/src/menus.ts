@@ -16,9 +16,12 @@ export type MenuItem =
       enabled?: boolean;
       checked?: boolean;
       alternate?: boolean;
+      keepOpen?: boolean;
       children?: MenuItem[];
       share?: boolean;
     };
+
+export type MenuPickEvent = { command: "menu.pick"; arg: string };
 
 export type MenuEntry = { id: string; title: string; current?: boolean };
 export type MenuBookmark = { id: string; title: string; url?: string; children?: MenuBookmark[] };
@@ -33,26 +36,71 @@ export type MenuState = {
   recentBookmarks: MenuBookmark[];
   bookmarksBar: MenuBookmark[];
   otherBookmarks: MenuBookmark[];
+  bookmarksShown?: boolean;
   recentlyClosed: MenuEntry[];
   recentlyClosedGroups?: MenuEntry[];
   warnBeforeQuitting: boolean;
   warnBeforeClosingWindow?: boolean;
   undoReopensClosedTab?: boolean;
+  linksOpenInLittleArdia?: boolean;
+  littleArdiaShortcutFromAnyApp?: boolean;
   downloadsInProgress?: number;
   extensions?: { id: string; title: string; icon?: string | null; enabled: boolean }[];
   shortcuts?: Record<string, string[][]>;
+  mouseShortcuts?: Record<string, string[]>;
 };
 
 export type MenuBookmarkKey = "bookmarkFolders" | "recentBookmarks" | "bookmarksBar" | "otherBookmarks";
 
+export type SurfaceItem = {
+  path: number[];
+  title: string;
+  enabled?: boolean;
+  checked?: boolean;
+  mixed?: boolean;
+  separator: boolean;
+  hidden?: boolean;
+  alternate?: boolean;
+  key?: string;
+  command?: string | number;
+  arg?: string;
+  action?: string;
+  ref?: string;
+  dynamic?: boolean;
+  submenu?: SurfaceItem[];
+};
+
+export type OpenSurface = {
+  id: string;
+  kind: "select" | "page" | "app" | "menuBar" | "other";
+  tab?: string;
+  window?: string;
+  captured?: boolean;
+  openedAt?: number;
+  link?: string;
+  items?: SurfaceItem[];
+};
+
+export type SurfaceEvent =
+  | (OpenSurface & { type: "menuOpened" })
+  | { type: "menuDropped"; id: string; kind: OpenSurface["kind"] };
+
 export type MenusNative = {
-  addListener(name: "onCommand", listener: (e: CommandEvent) => void): EventSubscription;
+  addListener(name: "onCommand", listener: (e: CommandEvent | MenuPickEvent) => void): EventSubscription;
+  addListener(name: "onSurface", listener: (e: SurfaceEvent) => void): EventSubscription;
+  openSurfaces(): Promise<OpenSurface[]>;
+  capturePageMenus(captures: boolean): Promise<void>;
+  dismissSurface(id: string): Promise<void>;
+  menuBar(): Promise<SurfaceItem[]>;
+  performMenuBarItem(ref: string, windowId: string): Promise<string>;
   showMenu(items: MenuItem[]): Promise<string | null>;
+  updateMenu(items: MenuItem[]): Promise<void>;
   setMenuState(state: Omit<MenuState, MenuBookmarkKey>): Promise<void>;
   setMenuBookmarks(bookmarks: Pick<MenuState, MenuBookmarkKey>): Promise<void>;
   menuShortcuts(): Promise<MenuShortcut[]>;
   recordShortcut(): Promise<{ key: string; modifiers: ShortcutModifier[] } | null>;
   cancelRecording(): Promise<void>;
+  mouseShortcutMonitor(): Promise<{ installed: boolean; installs: number }>;
 };
 
 let menusShown = 0;
@@ -67,7 +115,12 @@ export function watchMenus(watcher: () => void): () => void {
   return () => void menuWatchers.delete(watcher);
 }
 
-export function showMenu(items: MenuItem[]): Promise<string | null> {
+export function showMenu(items: MenuItem[], onKeepOpenPick?: (id: string) => MenuItem[]): Promise<string | null> {
+  const menus = nativeModule("ArdiaMenus");
+  const picks = onKeepOpenPick && menus.addListener("onCommand", (e) => e.command === "menu.pick" && void menus.updateMenu(onKeepOpenPick(e.arg)));
   menusChanged(1);
-  return Promise.resolve(nativeModule("ArdiaMenus").showMenu(items)).finally(() => menusChanged(-1));
+  return Promise.resolve(menus.showMenu(items)).finally(() => {
+    picks?.remove();
+    menusChanged(-1);
+  });
 }

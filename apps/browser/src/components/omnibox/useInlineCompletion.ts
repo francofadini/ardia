@@ -1,19 +1,25 @@
-import { completeInline } from "../../state/omnibox/textInput";
+import { caretAllowsInline, completeInline, selectInlineCompletion } from "../../state/omnibox/textInput";
+import { noteInlineCompletionShown } from "../../state/telemetry/inlineCompletionCounts";
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { findNodeHandle, type TextInput } from "react-native";
-import { acceptsCompletion, completionToWrite, fieldChange, withoutFirst, type EditContext, type FieldChange, type Inline, type PendingInline, type Selection } from "./inline";
+import { PLATFORM_FEATURES } from "../../lib/platformFeatures";
+import { useKeyHoldReplay } from "./keyHoldReplay";
+import { acceptsCompletion, completionToWrite, previewFieldChange, settlesInline, withoutFirst, type EditContext, type FieldChange, type Inline, type PendingInline, type Selection } from "./inline";
 
-export function useInlineCompletion(input: RefObject<TextInput | null>, typed: string, wanted: string) {
+export function useInlineCompletion(input: RefObject<TextInput | null>, typed: string, wanted: string, preview: string | null, caret: () => Selection) {
   const [inline, setInline] = useState<Inline | null>(null);
   const pending = useRef<PendingInline[]>([]);
   const heard = useRef(typed);
-  const shown = inline?.typed === typed ? inline.completion : "";
+  const counted = useRef("");
+  const replaying = useKeyHoldReplay(input);
+  const shown = !replaying && inline?.typed === typed ? inline.completion : "";
 
   useLayoutEffect(() => {
     if (typed !== heard.current) {
       heard.current = typed;
       pending.current = pending.current.map((p) => ({ ...p, orphaned: true }));
     }
+    if (preview !== null || replaying) return;
     const write = completionToWrite(typed, wanted, shown, pending.current);
     const tag = write && findNodeHandle(input.current);
     if (!write || tag == null) return;
@@ -21,13 +27,14 @@ export function useInlineCompletion(input: RefObject<TextInput | null>, typed: s
     const settle = (result: number) => {
       if (result === 2) return;
       pending.current = withoutFirst(pending.current, write);
-      if (result === 1) setInline(write);
+      const { start, end } = caret();
+      if (settlesInline(result === 1, write.completion, caretAllowsInline(start, end, write.typed.length))) setInline(write);
     };
     completeInline(tag, write.typed, write.completion).then(settle, () => settle(0));
-  }, [input, typed, wanted, shown]);
+  }, [input, typed, wanted, shown, preview, replaying]);
 
   const read = (next: string, edit?: EditContext): FieldChange => {
-    const change = fieldChange(typed, shown, next, pending.current, edit);
+    const change = previewFieldChange(typed, shown, preview, next, PLATFORM_FEATURES.inlineWritesEcho ? pending.current : [], edit);
     if (change.echo) {
       pending.current = pending.current.slice(change.settled);
       if (!change.stale) setInline(change.inline);
@@ -38,7 +45,17 @@ export function useInlineCompletion(input: RefObject<TextInput | null>, typed: s
     return change;
   };
 
-  const accepts = (selection: Selection) => acceptsCompletion(typed, shown, selection, pending.current);
+  useLayoutEffect(() => {
+    if (!shown) counted.current = "";
+    if (!shown || preview !== null) return;
+    selectInlineCompletion(input.current, typed.length, typed.length + shown.length);
+    const key = `${typed}\n${shown}`;
+    if (counted.current === key) return;
+    counted.current = key;
+    noteInlineCompletionShown();
+  }, [input, typed, shown, preview]);
+
+  const accepts = (selection: Selection) => preview === null && acceptsCompletion(typed, shown, selection, pending.current);
 
   return { shown, read, accepts };
 }

@@ -18,6 +18,12 @@ export type NavigationState = {
   httpStatus?: number;
 };
 
+export type AppBadge = { origin: string; count: number | null; flag: boolean };
+export type FieldProviderPanelRefusal = "hidden" | "notFocused" | "unavailable" | "notKey" | "notEditing" | "throttled" | "refused" | "noPanel";
+export type FieldProviderOpened = { via: "badge" | "menu"; shown: boolean; reason?: FieldProviderPanelRefusal; panel?: "above" | "below" };
+export type FieldProviderHint = { state: "shown" | "dismissed" };
+export type VerificationCodeFound = { token: string; app: string; main: boolean };
+
 export type MediaState = { playing: boolean; muted: boolean };
 
 export type NowPlaying = {
@@ -33,6 +39,7 @@ export type NowPlaying = {
   hasVideo: boolean;
   actions: string[];
   controllable: boolean;
+  loop?: boolean;
 };
 export type MediaCommand = "play" | "pause" | "toggle" | "next" | "previous" | "seekBy" | "seekTo" | "stop";
 export type MediaAccess = { camera: boolean; microphone: boolean; screen: boolean };
@@ -47,6 +54,11 @@ export type OpenWindowRequest = {
   postBody?: boolean;
   profile?: string;
   point?: { x: number; y: number };
+  site?: boolean;
+  fromClick?: boolean;
+  shiftClick?: boolean;
+  linkWait?: "matched" | "skipped" | "timedOut";
+  popup?: boolean;
 };
 
 export type BlockedPopup = { id: string; url: string; origin: string };
@@ -60,8 +72,9 @@ export type PageShare = {
   fileUrl?: string;
 };
 export type PageCommand = {
-  command: "search" | "ask" | "copyLinkToHighlight" | "escape" | "share";
+  command: "search" | "ask" | "copyLinkToHighlight" | "escape" | "share" | "hideElement";
   text: string;
+  point?: [number, number];
   modifiers?: { metaKey?: boolean; shiftKey?: boolean; altKey?: boolean; middle?: boolean };
   share?: PageShare;
   anchor?: [number, number, number, number];
@@ -106,9 +119,18 @@ export type WebNotification = {
   isMainFrame: boolean;
 };
 
-export type PictureInPictureState = { kind: "video" | "document"; active: boolean };
+export type PictureInPictureShown = { kind: "video" | "document"; active: true; fullScreenSpaces: boolean; leftApp?: boolean; leftTab: boolean; epoch: string; closedBy?: "app" | "chrome"; auto?: boolean };
+export type PictureInPictureState = { kind: "video" | "document"; active: boolean; closedBy?: "app" | "chrome"; auto?: boolean } | PictureInPictureShown;
+export type PictureInPictureDrag = { offCursor: boolean; slowMove: boolean; epoch: string };
+export type PictureInPictureSkip = { seconds: number; epoch: string };
+export type PictureInPictureStandIn = { pinch: boolean; timedOut: boolean; epoch: string };
+export type PictureInPictureUnstash = { epoch: string };
+export type PictureInPictureActivation = { move: boolean; activated: boolean; epoch: string };
+export type PictureInPictureResize = { inside: boolean; cursorShown: boolean; epoch: string };
+export type AutoPictureInPictureHold = "onScreen" | "appSwitch" | "nothingPlaying";
+export type MediaFault = { reason: string; muted?: boolean; blockerActive?: boolean };
 export type ControlPress = { clickAt: number; control: number };
-export type ActivateRequest = { reason: "pictureInPicture" };
+export type ActivateRequest = { reason: "pictureInPicture" | "page" | "window"; fromOtherApp?: boolean };
 export type DisplayMediaSource = {
   id: string;
   kind: "screen" | "window";
@@ -119,7 +141,7 @@ export type DisplayMediaSource = {
   height: number;
 };
 export type DisplayMediaAudio = { tab: boolean; screen: boolean; window: "application" | "system" | null };
-export type DisplayMediaRequest = { id: string; origin: string; frameOrigin?: string; audio: DisplayMediaAudio | null; sources: DisplayMediaSource[] };
+export type DisplayMediaRequest = { id: string; origin: string; frameOrigin?: string; audio: DisplayMediaAudio | null; sources: DisplayMediaSource[]; controller?: boolean };
 
 export type ZoomState = { zoom: number; host: string; isDefault: boolean; pinchScale: number; user: boolean };
 export type ContentBlockedState = { count: number; url: string };
@@ -131,6 +153,7 @@ export type PasswordPrompt = {
   passwordLength: number;
   federation: string;
   usernames: string[];
+  offer?: string;
 };
 export type PasswordPromptAnswer = "save" | "update" | "never" | "nope" | "dismiss";
 export type AutofillPrompt = {
@@ -152,6 +175,7 @@ export type ExtensionActionResult = "none" | "popup" | "sidePanel";
 
 export type PageSelection = { text: string; rect: { x: number; y: number; width: number; height: number } };
 export type ScrollState = "down" | "up" | "top";
+export type FocusRestoreOutcome = "focused" | "kept" | "refused" | "gaveUp" | "unknown";
 export type ProtectedMediaRequest = { keySystem: string; main: boolean };
 
 export type WebViewProps = ViewProps & {
@@ -165,6 +189,7 @@ export type WebViewProps = ViewProps & {
   standalone?: boolean;
   extensionHost?: "popup" | "sidePanel";
   visible?: boolean;
+  selected?: boolean;
   warm?: boolean;
   neighbour?: boolean;
   pageBackgroundColor?: string;
@@ -182,7 +207,7 @@ export type WebViewProps = ViewProps & {
   onPopupBlocked?: (popup: BlockedPopup) => void;
   onFindResult?: (result: FindResult) => void;
   onFullscreen?: (fullscreen: boolean) => void;
-  onStatus?: (text: string) => void;
+  onStatus?: (text: string, fromBottom: number | null) => void;
   onCrashed?: (info: CrashInfo) => void;
   onUnresponsive?: () => void;
   onResponsive?: () => void;
@@ -194,25 +219,41 @@ export type WebViewProps = ViewProps & {
   onNotification?: (notification: WebNotification) => void;
   onNotificationClose?: (id: string) => void;
   onPictureInPicture?: (state: PictureInPictureState) => void;
+  onAutoPictureInPictureKept?: (reason: AutoPictureInPictureHold, epoch: string) => void;
+  onPictureInPictureDragged?: (drag: PictureInPictureDrag) => void;
+  onPictureInPictureResized?: (resize: PictureInPictureResize) => void;
+  onPictureInPictureSkip?: (skip: PictureInPictureSkip) => void;
+  onPictureInPictureStandIn?: (standIn: PictureInPictureStandIn) => void;
+  onPictureInPictureUnstashed?: (unstash: PictureInPictureUnstash) => void;
+  onPictureInPictureActivated?: (activation: PictureInPictureActivation) => void;
+  onMediaFault?: (fault: MediaFault) => void;
   onActivateRequest?: (request: ActivateRequest) => void;
   onDisplayMediaRequest?: (request: DisplayMediaRequest) => void;
   onWindowClose?: () => void;
   onCommand?: (command: PageCommand) => void;
   onPageFocus?: () => void;
-  onPagePress?: () => void;
+  onPagePress?: (refused: boolean) => void;
+  onFocusRestore?: (outcome: FocusRestoreOutcome) => void;
   onSelection?: (selection: PageSelection | null) => void;
   onScroll?: (state: ScrollState) => void;
   onProtectedMedia?: (request: ProtectedMediaRequest) => void;
+  onAutoplayBlocked?: (count: number) => void;
   onReady?: () => void;
-  onDiscarded?: (url: string) => void;
+  onDiscarded?: (url: string, reason: DiscardReason | null) => void;
   onPasswordPrompt?: (prompt: PasswordPrompt) => void;
   onAutofillPrompt?: (prompt: AutofillPrompt | null, id: number) => void;
   onExternalApp?: (request: ExternalAppRequest) => void;
   onPreferredSize?: (size: { width: number; height: number }) => void;
+  onTransferRefused?: (fromWindowId: string) => void;
+  onAppBadge?: (badge: AppBadge) => void;
+  onFieldProviderOpened?: (opened: FieldProviderOpened) => void;
+  onFieldProviderHint?: (hint: FieldProviderHint) => void;
+  onVerificationCodeFound?: (found: VerificationCodeFound) => void;
 };
 
 export type WebViewHandle = {
   nativeTag(): number | null;
+  isAttached?(): boolean | Promise<boolean | undefined>;
   loadUrl(url: string, options?: { userInitiated?: boolean }): Promise<void>;
   goBack(): Promise<void>;
   goForward(): Promise<void>;
@@ -221,6 +262,7 @@ export type WebViewHandle = {
   forceReload(): Promise<void>;
   stopLoading(): Promise<void>;
   focus(): Promise<void>;
+  focusIfUnfocused(): Promise<boolean>;
   setMuted(muted: boolean): Promise<void>;
   zoomStep(direction: 1 | -1 | 0): Promise<void>;
   find(text: string, forward: boolean, findNext: boolean): Promise<void>;
@@ -245,8 +287,9 @@ export type WebViewHandle = {
   openBlockedPopup(id: string, always?: boolean): Promise<void>;
   clearSiteData(): Promise<{ cookies: number | false; storage: boolean }>;
 
-  resolvePasswordPrompt(answer: PasswordPromptAnswer, edits?: { username?: string; password?: string }): Promise<void>;
+  resolvePasswordPrompt(answer: PasswordPromptAnswer, edits?: { username?: string; password?: string; offer?: string }): Promise<void>;
   resolveAutofillPrompt(id: number, answer: AutofillPromptAnswer): Promise<void>;
+  answerAutofillPrompt?(id: number, answer: AutofillPromptAnswer): Promise<boolean>;
   executeExtensionAction(extensionId: string): Promise<ExtensionActionResult | null>;
 
   resolveDisplayMedia(id: string, sourceId: string | null, audio?: boolean): Promise<void>;
@@ -255,7 +298,32 @@ export type WebViewHandle = {
 
   resolveUnresponsive(terminate: boolean): Promise<void>;
   discard(options?: { unload?: boolean }): Promise<DiscardOutcome>;
+  sleepIfHidden(seconds: number): Promise<DiscardRefusal[]>;
   setFrozen(frozen: boolean): Promise<void>;
 };
 
+export type WebViewNativeHandle = Omit<
+  WebViewHandle,
+  | "nativeTag"
+  | "isAttached"
+  | "evaluate"
+  | "loadUrl"
+  | "resolvePasswordPrompt"
+  | "answerAutofillPrompt"
+  | "discard"
+  | "requestPictureInPicture"
+  | "takeControlPress"
+> & {
+  readonly nativeTag: number | null;
+  answerAutofillPrompt(id: number, answer: string): Promise<boolean>;
+  requestPictureInPicture(clickAt: number, control: number): Promise<boolean>;
+  takeControlPress(clickAt: number, control: number): Promise<boolean>;
+  evaluate(code: string): Promise<string | null>;
+  loadUrl(url: string, userInitiated?: boolean): Promise<void>;
+  resolvePasswordPrompt(answer: string, username: string | null, password: string | null): Promise<void>;
+  discard(unload: boolean): Promise<DiscardOutcome>;
+};
+
 export type DiscardOutcome = "discarded" | "already" | "refused" | "unsupported";
+export type DiscardRefusal = number;
+export type DiscardReason = "external" | "urgent" | "proactive" | "suggested" | "frozen";

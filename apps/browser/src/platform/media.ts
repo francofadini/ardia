@@ -9,12 +9,21 @@ export {
   type DisplayMediaAudio,
   type DisplayMediaRequest,
   type MediaCommand,
+  type MediaFault,
   type NowPlaying,
   type ControlPress,
   type PictureInPictureState,
+  type PictureInPictureDrag,
+  type PictureInPictureResize,
+  type PictureInPictureSkip,
+  type PictureInPictureStandIn,
+  type PictureInPictureActivation,
+  type PictureInPictureUnstash,
 } from "@ardia/ardiacore";
 
 export const getDisplayMediaSources = () => call("media.displayMediaSources");
+export const screenRecordingAllowed = () => call("media.screenRecordingAllowed");
+export const requestScreenRecording = () => call("media.requestScreenRecording");
 export const setDisplayMediaPicker = (enabled: boolean) => call("webView.setDisplayMediaPicker", { enabled });
 export const setAutoPictureInPicture = (enabled: boolean) => call("webView.setAutoPictureInPicture", { enabled });
 export const setVideoUpscaling = (enabled: boolean) => call("webView.setVideoUpscaling", { enabled });

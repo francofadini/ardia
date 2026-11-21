@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildSuggestions } from "@ardia/core";
-import { acceptsCompletion, completionToWrite, fieldChange, withoutFirst } from "./inline.ts";
+import { acceptsCompletion, completionToWrite, fieldChange, previewFieldChange, settlesInline, withoutFirst } from "./inline.ts";
 
 const now = Date.UTC(2026, 8, 25);
 const history = [
@@ -261,4 +261,30 @@ test("the caret reaching the end of the text with the completion accepts it", ()
   assert.equal(acceptsCompletion("git", "", sel(3), []), false);
   assert.equal(acceptsCompletion("git", "hub.com", sel(10), [{ typed: "git", completion: "hub.com" }]), false);
   assert.equal(edit("github.com", "", "github.co", sel(10), sel(9)), true);
+});
+
+test("previewFieldChange: a completion echo that lands after arrowing to a row is still an echo, typing edits the row's text", () => {
+  const pending = [{ typed: "gi", completion: "thub.com" }];
+  const echo = previewFieldChange("gi", "", "gitlab.com", "github.com", pending);
+  assert.equal(echo.echo, true);
+  const typedOnPreview = previewFieldChange("gi", "thub.com", "gitlab.com", "gitlab.com/", []);
+  assert.deepEqual(typedOnPreview, { echo: false, typed: "gitlab.com/", suppress: false });
+  assert.deepEqual(previewFieldChange("gi", "", null, "git", []), fieldChange("gi", "", "git", []));
+});
+
+test("a completion that was cleared is taken as cleared wherever the caret is, and one that was added only where the caret allows it", () => {
+  assert.equal(settlesInline(true, "", false), true);
+  assert.equal(settlesInline(true, "mple.com", false), false);
+  assert.equal(settlesInline(true, "mple.com", true), true);
+  assert.equal(settlesInline(false, "", true), false);
+});
+
+test("Windows: the whole completion arriving as typed text is typing, not the echo of a completion computed for an older text", async () => {
+  const older = [{ typed: "e", completion: "xample.com", orphaned: true }];
+  assert.deepEqual(fieldChange("example.co", "", "example.com", older), { echo: true, settled: 1, inline: { typed: "e", completion: "xample.com" }, stale: true });
+  assert.deepEqual(fieldChange("example.co", "", "example.com", []), { echo: false, typed: "example.com", suppress: false });
+  const { PLATFORM_FEATURES: windows } = await import("../../lib/platformFeatures.windows.ts");
+  const { PLATFORM_FEATURES: mac } = await import("../../lib/platformFeatures.ts");
+  assert.equal(windows.inlineWritesEcho, false);
+  assert.equal(mac.inlineWritesEcho, true);
 });

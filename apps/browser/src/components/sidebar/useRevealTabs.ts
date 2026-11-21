@@ -1,47 +1,54 @@
 import { useEffect, type RefObject } from "react";
-import type { ScrollView, View } from "react-native";
+import type { ScrollView } from "react-native";
 import { watchRevealTargets } from "../../state/sidebar/reveal";
-import { measureRow } from "../../state/sidebar/sidebarUi";
-import { revealSpot } from "../../state/sidebar/geometry";
+import { reduceMotion } from "../ui/reduceMotion";
 import { GLOW_ROOM, type SidebarGeometry } from "./pageLayout";
-import { SCROLL_EDGE } from "./ScrollEdge";
+import { locateTab } from "./selectedRow";
+import { REVEAL_ROW_MARGIN } from "./tokens";
 
-export function useRevealTabs(windowId: string, scroll: RefObject<ScrollView | null>, scrollY: RefObject<number>, geometry: RefObject<SidebarGeometry>) {
-  useEffect(() => {
+export type RevealScroll = { y: number; animated: boolean };
+
+export function revealScrollFor(row: { y: number; height: number }, at: { top: number; viewport: number; edgeLift?: number }, animated: boolean): RevealScroll | null {
+  const { top, viewport, edgeLift = 0 } = at;
+  if (row.y - top < GLOW_ROOM) return { y: Math.max(0, row.y - GLOW_ROOM + edgeLift - REVEAL_ROW_MARGIN), animated };
+  if (row.y + row.height - top > viewport - GLOW_ROOM) return { y: row.y + row.height - viewport + REVEAL_ROW_MARGIN, animated };
+  return null;
+}
+
+type Scroller = Pick<ScrollView, "scrollTo">;
+
+export function startRevealTabs(windowId: string, scroll: RefObject<Scroller | null>, scrollY: RefObject<number>, geometry: RefObject<SidebarGeometry>, stillMotion: () => boolean | null = reduceMotion) {
     let switched: string | null = null;
     let opened: string | null = null;
+    let viaPill = false;
     let frame = 0;
     let reveals = 0;
-    const show = (y: number, height: number) => {
-      const top = scrollY.current ?? 0;
-      const { viewport } = geometry.current;
-      if (y - top < GLOW_ROOM) scroll.current?.scrollTo({ y: Math.max(0, y - GLOW_ROOM - SCROLL_EDGE.inset), animated: true });
-      else if (y + height - top > viewport - 8) scroll.current?.scrollTo({ y: y + height - viewport + 8, animated: true });
+    const show = (row: { y: number; height: number }, pill: boolean) => {
+      const { viewport, edgeLift } = geometry.current;
+      const move = revealScrollFor(row, { top: scrollY.current ?? 0, viewport, edgeLift }, pill && !stillMotion());
+      if (move) scroll.current?.scrollTo(move);
     };
     const reveal = () => {
       frame = 0;
       if (!geometry.current.viewport || !scroll.current) return;
       const mine = ++reveals;
       const tabId = switched ?? opened;
+      const pill = viaPill;
       switched = opened = null;
+      viaPill = false;
       if (!tabId) return;
-      const spot = revealSpot(windowId, tabId, geometry.current.tilesFixed, geometry.current.newTabAtTop);
-      if (!spot) return;
-      if ("span" in spot) return show(GLOW_ROOM + SCROLL_EDGE.inset + geometry.current.regions[spot.span.section] + spot.span.top, spot.span.height);
-      const view = scroll.current as unknown as View;
-      const keys = spot.keys;
-      const firstShown = (i: number): Promise<Awaited<ReturnType<typeof measureRow>>> =>
-        i >= keys.length ? Promise.resolve(null) : measureRow(windowId, keys[i]!).then((row) => row ?? firstShown(i + 1));
-      void firstShown(0).then((row) =>
-        view.measureInWindow((_x, y) => row && mine === reveals && show(row.y - y + (scrollY.current ?? 0), row.height)),
-      );
+      const row = locateTab(windowId, tabId, geometry.current, scroll.current as ScrollView, () => scrollY.current ?? 0);
+      if (!row) return;
+      if ("then" in row) void row.then((found) => found && mine === reveals && show(found, pill));
+      else show(row, pill);
     };
     const schedule = () => {
       if ((switched || opened) && !frame) frame = requestAnimationFrame(reveal);
     };
-    const unsubscribe = watchRevealTargets(windowId, (nowSwitched, nowOpened) => {
+    const unsubscribe = watchRevealTargets(windowId, ({ switched: nowSwitched, opened: nowOpened }, pill) => {
       if (nowSwitched) switched = nowSwitched;
       if (nowOpened) opened = nowOpened;
+      viaPill = pill;
       schedule();
     });
     geometry.current.laidOut = schedule;
@@ -50,5 +57,8 @@ export function useRevealTabs(windowId: string, scroll: RefObject<ScrollView | n
       unsubscribe();
       geometry.current.laidOut = undefined;
     };
-  }, [windowId]);
+}
+
+export function useRevealTabs(windowId: string, scroll: RefObject<ScrollView | null>, scrollY: RefObject<number>, geometry: RefObject<SidebarGeometry>) {
+  useEffect(() => startRevealTabs(windowId, scroll, scrollY, geometry), [windowId]);
 }

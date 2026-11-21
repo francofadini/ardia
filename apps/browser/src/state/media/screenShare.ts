@@ -1,19 +1,24 @@
-import { changeCaptureSource, stopCapture, type DisplayMediaRequest } from "../../platform/media";
+import { changeCaptureSource, requestScreenRecording, stopCapture, type DisplayMediaRequest } from "../../platform/media";
+import { noteScreenRecordingAsked, noteSharePicked } from "../telemetry/usage";
+import { consentToken, type ConsentToken } from "../telemetry/client";
 import { webviews } from "../../platform/webviews";
 import { useBrowser } from "../browser/store";
 import { engineProfile } from "../browser/model";
 import { usePages } from "../tabs/pageState";
 import { useMedia, type TabShare } from "./media";
+import { useBrowserWhile, useStoreWhile } from "../tabs/tabWatch";
 
-export { getDisplayMediaSources, type DisplayMediaAudio, type DisplayMediaSource } from "../../platform/media";
+export { getDisplayMediaSources, screenRecordingAllowed, type DisplayMediaAudio, type DisplayMediaSource } from "../../platform/media";
+export { noteScreenRecordingMissing } from "../telemetry/usage";
 
 export function useShareFor(tabId: string): [string, TabShare] | null {
   const shares = useMedia((m) => m.tabShares);
-  const profile = useBrowser((s) => {
+  const sharing = Object.keys(shares).length > 0;
+  const profile = useBrowserWhile(sharing, (s) => {
     const tab = s.tabs[tabId];
     return tab && /^https?:|^file:/.test(tab.url) ? engineProfile(s, tab.profileId) : null;
   });
-  const capturing = usePages((p) => Object.keys(shares).filter((id) => p.pages[id]?.mediaAccess?.screen).join(","));
+  const capturing = useStoreWhile(usePages, sharing, (p) => Object.keys(shares).filter((id) => p.pages[id]?.mediaAccess?.screen).join(","));
   if (profile === null) return null;
   for (const capturer of capturing ? capturing.split(",") : []) {
     const share = shares[capturer];
@@ -24,6 +29,18 @@ export function useShareFor(tabId: string): [string, TabShare] | null {
   return null;
 }
 
+export const useTabShared = (tabId: string): boolean => useMedia((m) => !!m.sharedTabs[tabId]);
+
+function refreshSharedTabs() {
+  const { tabShares, sharedTabs } = useMedia.getState();
+  const pages = usePages.getState().pages;
+  const next: Record<string, true> = {};
+  for (const [capturer, share] of Object.entries(tabShares)) if (pages[capturer]?.mediaAccess?.screen) next[share.capturedTabId] = true;
+  const keys = Object.keys(next);
+  if (keys.length === Object.keys(sharedTabs).length && keys.every((id) => sharedTabs[id])) return;
+  useMedia.setState({ sharedTabs: next });
+}
+
 export function noteTabShare(capturerTabId: string, capturedTabId: string, origin: string) {
   useMedia.setState((m) => ({ tabShares: { ...m.tabShares, [capturerTabId]: { capturedTabId, origin, dismissed: {} } } }));
 }
@@ -31,9 +48,13 @@ export function noteTabShare(capturerTabId: string, capturedTabId: string, origi
 const SHARE_END_MS = 1500;
 
 export function startTabShareCleanup() {
-  return usePages.subscribe((p, prev) => {
+  const stopShares = useMedia.subscribe((m, prev) => {
+    if (m.tabShares !== prev.tabShares) refreshSharedTabs();
+  });
+  const stopPages = usePages.subscribe((p, prev) => {
     if (p.pages === prev.pages) return;
     const shares = useMedia.getState().tabShares;
+    if (Object.keys(shares).length) refreshSharedTabs();
     const ended = Object.keys(shares).filter((id) => prev.pages[id]?.mediaAccess?.screen && !p.pages[id]?.mediaAccess?.screen);
     if (!ended.length) return;
     setTimeout(() => {
@@ -46,6 +67,10 @@ export function startTabShareCleanup() {
       });
     }, SHARE_END_MS);
   });
+  return () => {
+    stopShares();
+    stopPages();
+  };
 }
 
 export async function shareInstead(capturer: string, tabId: string): Promise<boolean> {
@@ -95,9 +120,17 @@ if (__DEV__)
     shareTab: (tabId: string, sharedTabId: string, audio = true) => shareTab(tabId, sharedTabId, audio),
   };
 
-export function answerDisplayMedia(tabId: string, sourceId: string | null, audio = false) {
+export function askForScreenRecording() {
+  noteScreenRecordingAsked();
+  return requestScreenRecording();
+}
+
+const sourceKind = (sourceId: string) => (sourceId.startsWith("screen:") ? "screen" : sourceId.startsWith("window:") ? "window" : "tab");
+
+export function answerDisplayMedia(tabId: string, sourceId: string | null, audio = false, consent?: ConsentToken | null) {
   const request = useMedia.getState().displayRequests[tabId];
   if (!request) return;
+  if (sourceId) noteSharePicked(sourceKind(sourceId), request.controller === true, consent);
   void webviews.get(tabId)?.resolveDisplayMedia(request.id, sourceId, audio);
   useMedia.setState((m) => {
     const displayRequests = { ...m.displayRequests };
@@ -109,15 +142,16 @@ export function answerDisplayMedia(tabId: string, sourceId: string | null, audio
 export async function shareTab(tabId: string, sharedTabId: string, audio: boolean) {
   const request = useMedia.getState().displayRequests[tabId];
   if (!request) return;
+  const consent = consentToken();
   const source = await webviews.get(sharedTabId)?.mediaCaptureSourceId();
   if (useMedia.getState().displayRequests[tabId] !== request) return;
   if (source) noteTabShare(tabId, sharedTabId, request.origin);
-  answerDisplayMedia(tabId, source ?? null, audio);
+  answerDisplayMedia(tabId, source ?? null, audio, consent);
 }
 
 export function cancelDisplayMediaOnNavigation() {
   const page = (url: string) => url.replace(/#.*$/, "");
-  return useBrowser.subscribe((s, prev) => {
+  return useBrowser.subscribeTo(["tabs"], (s, prev) => {
     if (s.tabs === prev.tabs) return;
     for (const [tabId, request] of Object.entries(useMedia.getState().displayRequests) as [string, Pending][]) {
       const url = s.tabs[tabId]?.url;

@@ -2,15 +2,26 @@ import type {
   AppEvent,
   BangListReply,
   CommandEvent,
+  CrashReport,
+  DiagnosticsSample,
+  HardwareInfo,
   LaunchConfig,
+  OpenSurface,
   OpenWindowOptions,
   ShellNativeModules,
+  SurfaceEvent,
+  SurfaceItem,
   SystemInfo,
   SystemSignal,
   UserScriptsFolder,
   WindowEvent,
 } from "@ardia/shell";
 import { nativeEvents, unfaked } from "./events";
+import { reportModule } from "./report";
+import { telemetryLocalModule } from "./telemetryLocal";
+import { windowGeometries, windowGeometryFakes } from "./windowGeometry";
+import officialPin from "../../official-plugins.json";
+export { beginWindowControlTransition, finishStalledTransition, geometryWorld } from "./windowGeometry";
 
 type Modules = ShellNativeModules;
 
@@ -25,9 +36,19 @@ type UserScriptsHost = {
 const testGlobals = globalThis as { acTestUserScripts?: UserScriptsHost };
 
 export const docs = new Map<string, string>();
+export const stagedDocs = new Map<string, string>();
 export const heldSaves = { on: false, queue: [] as (() => void)[] };
+export const refusedSaves = { on: false };
+export const refusedWrites = { on: false, returnsFalse: false, landingFails: false };
 export const bangListServer: { reply: ((etag: string | null) => Promise<BangListReply>) | null } = { reply: null };
 export const appInfo: Partial<SystemInfo> = { appVersion: "1.0" };
+export const interfaceScaleNative = { scale: 1, applied: [] as number[], refuses: false, asked: [] as number[] };
+const clampedScale = (scale: number) => Math.min(1.5, Math.max(0.8, Math.round(scale * 100) / 100));
+export const diagnostics: { crashReports: CrashReport[]; hardware: HardwareInfo; sample: DiagnosticsSample } = {
+  crashReports: [],
+  hardware: { chip: "Apple M1", gpu: "Apple M1", memoryGB: 16, displays: 1, maxScale: 2, hardwareDecode: { av1: false, vp9: true, hevc: true, h264: true } },
+  sample: { footprintMB: 500, freeDiskGB: 100 },
+};
 export const launch: LaunchConfig = {
   dataDirectory: null,
   configDirectory: "/config",
@@ -43,10 +64,12 @@ export const launch: LaunchConfig = {
 export type FakeWindow = OpenWindowOptions & { title?: string; trafficLightsCenter?: [number, number] | null; trafficLightsTrailing?: boolean };
 const shellEvents = nativeEvents();
 export const windows = {
+  closeRequests: [] as string[],
   open: new Map<string, FakeWindow>(),
   closed: [] as string[],
   focused: null as string | null,
   emit: (event: WindowEvent) => shellEvents.emit("onWindowEvent", event),
+  geometry: windowGeometries,
 };
 export const emitAppEvent = (event: AppEvent) => shellEvents.emit("onAppEvent", event);
 export const emitCommand = (event: CommandEvent) => shellEvents.emit("onCommand", event);
@@ -63,11 +86,17 @@ const shell: Modules["ArdiaShell"] = {
   isDarkAppearance: () => Promise.resolve(false),
 };
 
-const windowsModule: Modules["ArdiaAppWindows"] = {
+const windowsModule: Modules["ArdiaAppWindows"] & { requestClose(id: string): Promise<void> } = {
+  windowCornerRadius: () => 19,
+  drawnWindowCornerRadius: () => 19,
   addListener: shellEvents.addListener,
   openWindow: (id, options) => {
     windows.open.set(id, { ...options });
     if (options.focus !== false) windows.focused = id;
+    return Promise.resolve();
+  },
+  requestClose: (id) => {
+    windows.closeRequests.push(id);
     return Promise.resolve();
   },
   closeWindow: (id) => {
@@ -102,8 +131,21 @@ const windowsModule: Modules["ArdiaAppWindows"] = {
   dragPreviewEnd: () => Promise.resolve(),
   raiseView: () => Promise.resolve(),
   windowFrame: () => Promise.resolve(null),
+  ...windowGeometryFakes((id) => windows.open.has(id), (event) => shellEvents.emit("onWindowEvent", event)),
+  frameCornerRadius: () => Promise.resolve(0),
   replyToTerminate: () => Promise.resolve(),
 };
+
+export const pressesWithoutRelease = { count: 0 };
+export const focusHandoffCounts = {
+  pending: {} as Record<string, Record<string, number>>,
+  take() {
+    const taken = this.pending;
+    this.pending = {};
+    return taken;
+  },
+};
+export const pressRepeated: { earlier: { landedOn: string; ms: number } | null } = { earlier: null };
 
 const focus: Modules["ArdiaFocus"] = {
   setSwitcherCapture: () => Promise.resolve(),
@@ -111,42 +153,106 @@ const focus: Modules["ArdiaFocus"] = {
   saveKeyResponder: () => Promise.resolve(0),
   restoreKeyResponder: () => Promise.resolve(false),
   discardKeyResponder: () => Promise.resolve(),
+  takeEditKeyAcks: () => editKeyAcks.take(),
+  takeInputSourceKeys: () => inputSourceKeys.take(),
   switcherPointerMoved: () => true,
   cancelFocusMove: () => Promise.resolve(),
   claimFocus: () => Promise.resolve(),
+  pressesWithoutRelease: () => pressesWithoutRelease.count,
+  takeFocusHandoffCounts: () => focusHandoffCounts.take(),
+  pressRepeated: () => Promise.resolve(pressRepeated.earlier),
 };
+
+export const surfaces = {
+  open: [] as OpenSurface[],
+  bar: [] as SurfaceItem[],
+  captures: false,
+  chosen: [] as { id: string; path: number[] }[],
+  performed: [] as { ref: string; windowId: string }[],
+  dismissed: [] as string[],
+  barHook: null as (() => void) | null,
+  emit: (event: SurfaceEvent) => shellEvents.emit("onSurface", event),
+};
+
+function surfaceOf(id: string) {
+  const found = surfaces.open.find((s) => s.id === id);
+  if (!found) throw Object.assign(new Error(`There's no open menu ${id}.`), { code: "no_window" });
+  return found;
+}
 
 const menus: Modules["ArdiaMenus"] = {
   addListener: shellEvents.addListener,
+  openSurfaces: () => Promise.resolve(surfaces.open),
+  capturePageMenus: (captures) => Promise.resolve(void (surfaces.captures = captures)),
+  dismissSurface: async (id) => {
+    surfaceOf(id);
+    surfaces.dismissed.push(id);
+    surfaces.open = surfaces.open.filter((s) => s.id !== id);
+  },
+  menuBar: async () => {
+    surfaces.barHook?.();
+    return surfaces.bar;
+  },
+  performMenuBarItem: async (ref, windowId) => {
+    surfaces.performed.push({ ref, windowId });
+    return "performed";
+  },
   showMenu: () => Promise.resolve(null),
+  updateMenu: () => Promise.resolve(),
   setMenuState: () => Promise.resolve(),
   setMenuBookmarks: () => Promise.resolve(),
   menuShortcuts: () => Promise.resolve([]),
   recordShortcut: () => Promise.resolve(null),
   cancelRecording: () => Promise.resolve(),
+  mouseShortcutMonitor: () => Promise.resolve({ installed: false, installs: 0 }),
 };
 
 const dialogs: Modules["ArdiaDialogs"] = {
   confirm: () => Promise.resolve({ confirmed: false, suppressed: false }),
+  dismissesShownOnly: true,
+  dismissShownOnly: () => Promise.resolve(),
   prompt: () => Promise.resolve(null),
   pickFiles: () => Promise.resolve([]),
   pickFolder: () => Promise.resolve(null),
 };
 
 const documents: Modules["ArdiaDocuments"] = {
-  readDocument: (name) => docs.get(name) ?? null,
-  writeDocument: (name, contents) => void docs.set(name, contents),
+  readDocument: (name) => stagedDocs.get(name) ?? docs.get(name) ?? null,
+  writeDocument: (name, contents) => {
+    if (refusedWrites.on) throw new Error("write refused");
+    if (refusedWrites.returnsFalse) return false as unknown as void;
+    docs.set(name, contents);
+    stagedDocs.delete(name);
+  },
   saveDocument: (name, contents) =>
-    new Promise((resolve) => {
-      const land = () => (docs.set(name, contents), resolve());
+    new Promise((resolve, reject) => {
+      stagedDocs.set(name, contents);
+      if (refusedSaves.on) return reject(new Error("save refused"));
+      const land = () => {
+        try {
+          docs.set(name, contents);
+        } finally {
+          if (stagedDocs.get(name) === contents) stagedDocs.delete(name);
+        }
+        resolve();
+      };
       if (heldSaves.on) heldSaves.queue.push(land);
       else land();
     }),
-  documentSaved: () => Promise.resolve(),
-  removeDocument: (name) => void docs.delete(name),
+  documentSaved: () => (refusedWrites.on || refusedWrites.landingFails ? Promise.reject(new Error("save refused")) : Promise.resolve()),
+  removeDocument: (name) => void (docs.delete(name), stagedDocs.delete(name)),
 };
 
 const app: Modules["ArdiaApp"] = {
+  interfaceScale: () => interfaceScaleNative.scale,
+  interfaceScaleRange: () => [0.8, 1.5],
+  setInterfaceScale: (scale) => {
+    interfaceScaleNative.asked.push(scale);
+    if (interfaceScaleNative.refuses) return Promise.reject(new Error("refused"));
+    interfaceScaleNative.scale = clampedScale(scale);
+    interfaceScaleNative.applied.push(interfaceScaleNative.scale);
+    return Promise.resolve(interfaceScaleNative.scale);
+  },
   setWindowActivity: () => Promise.resolve(),
   share: () => Promise.resolve(),
   shareText: () => Promise.resolve(),
@@ -162,7 +268,9 @@ const app: Modules["ArdiaApp"] = {
   playIntroMusic: () => Promise.resolve(),
   setIntroMusicMuted: () => Promise.resolve(),
   stopIntroMusic: () => Promise.resolve(),
-  crashReports: () => Promise.resolve([]),
+  crashReports: (since) => Promise.resolve(diagnostics.crashReports.filter((r) => (r.fileTime ?? r.time) > since)),
+  hardwareInfo: () => Promise.resolve(structuredClone(diagnostics.hardware)),
+  diagnosticsSample: () => Promise.resolve({ ...diagnostics.sample }),
 };
 
 const updater: Modules["ArdiaUpdater"] = {
@@ -178,9 +286,16 @@ const notifications: Modules["ArdiaNotifications"] = {
   addListener: notificationEvents.addListener,
   notificationPermission: () => Promise.resolve("notDetermined"),
   requestNotificationPermission: () => Promise.resolve(false),
-  postNotification: () => Promise.resolve(null),
+  postNotification: (options) => Promise.resolve({ id: options.id, icon: "none" }),
   removeNotifications: () => Promise.resolve(),
   openNotificationSettings: () => Promise.resolve(),
+};
+
+const location: Modules["ArdiaLocation"] = {
+  locationPermission: () => Promise.resolve("notDetermined"),
+  requestLocationPermission: () => Promise.resolve("notDetermined"),
+  openLocationSettings: () => Promise.resolve(),
+  devLocationRequests: () => Promise.resolve(0),
 };
 
 const scriptingEvents = nativeEvents();
@@ -192,6 +307,7 @@ const scripting: Modules["ArdiaScripting"] = {
 
 const dev: Modules["ArdiaDev"] = {
   devCrash: () => Promise.resolve(),
+  devBlockMain: (ms) => Promise.resolve(ms),
   devRenderIntroMusic: () => Promise.resolve(null),
   devRunAppleScript: () => Promise.resolve({ ok: false, error: "no AppleScript in tests" }),
   devSnapshotWindow: () => Promise.resolve(false),
@@ -229,13 +345,21 @@ const calendarEvents = nativeEvents();
 const calendar: Modules["ArdiaCalendar"] = {
   addListener: calendarEvents.addListener,
   authorizationStatus: () => "notDetermined",
-  requestAccess: () => Promise.resolve(false),
+  requestAccess: () => Promise.resolve({ granted: false, status: "notDetermined", error: null, responsible: "self", ms: 0 }),
   calendars: () => Promise.resolve([]),
   events: () => Promise.resolve([]),
 };
 
+export const keychainReads = { values: new Map<string, string>(), errors: new Map<string, string>() };
+
 const keychain: Modules["ArdiaKeychain"] = {
   get: () => Promise.resolve(null),
+  read: (account) => {
+    const reason = keychainReads.errors.get(account);
+    if (reason !== undefined) return Promise.resolve({ status: "error", reason });
+    const value = keychainReads.values.get(account);
+    return Promise.resolve(value === undefined ? { status: "missing" } : { status: "ok", value });
+  },
   set: () => Promise.resolve(true),
   delete: () => Promise.resolve(true),
 };
@@ -250,6 +374,8 @@ const translate: Modules["ArdiaTranslate"] = {
   prepare: () => Promise.resolve(),
   translate: (_source, _target, texts) => Promise.resolve(texts),
   translateBlocks: (_source, _target, blocks) => Promise.resolve(blocks),
+  open: () => Promise.resolve(),
+  cancel: () => Promise.resolve(),
 };
 
 const magnifyArea: Modules["ArdiaMagnifyArea"] = { devMagnify: () => unfaked("ArdiaMagnifyArea", "devMagnify") };
@@ -262,6 +388,7 @@ const fileDrop: Modules["ArdiaFileDrop"] = {
 const cliEvents = nativeEvents();
 const cli: Modules["ArdiaCli"] = {
   installedVersion: () => null,
+  canInstallUnattended: () => false,
   install: () => Promise.resolve({ ok: false, appVersion: appInfo.appVersion ?? "", error: "no installs in tests", lines: [] }),
   addListener: cliEvents.addListener,
 };
@@ -356,6 +483,116 @@ const systemSignalsModule: Modules["ArdiaSystemSignals"] = {
   addListener: systemSignalEvents.addListener,
 };
 
+export const pluginHost = {
+  folders: [] as { name: string; status: "ok" | "missing" | "link" | "notFile" | "tooBig" | "unreadable"; text?: string; folderId?: string; bundled?: boolean; replacesBundled?: boolean; ignoresUserFolder?: boolean }[],
+  starts: [] as { name: string; run: string[]; memoryMB: number; network: boolean; folderId: string; approved: string; page: boolean; runtime?: "js" | "process"; entry?: string }[],
+  fetches: [] as { url: string; method: string; headers: Record<string, string>; body?: string; timeoutMs: number; allowedHosts: string[] }[],
+  fetchResult: null as null | { ok: true; status: number; statusText: string; url: string; headers: Record<string, string>; body: string } | { ok: false; reason: string },
+  storage: {} as Record<string, string>,
+  storageWrites: [] as { name: string; text: string }[],
+  storageResult: null as null | { ok: false; reason: string },
+  storageReadResult: null as null | { status: "error"; reason: string },
+  files: {} as Record<string, string>,
+  fileReads: [] as { name: string; folderId: string; approved: string; path: string }[],
+  stops: [] as { name: string; run: number; graceMs: number }[],
+  replies: [] as { name: string; run: number; line: string }[],
+  events: [] as { name: string; run: number; line: string }[],
+  removed: [] as string[],
+  links: [] as { name: string; folderId: string; approved: string; version: string | null; programs: { name: string; path: string; afterUpdate?: string[][] }[] }[],
+  unlinks: [] as { name: string; programs: string[]; remove: boolean }[],
+  sweeps: [] as string[][],
+  afterUpdateQuitStops: null as null | { consent: string; exitedOnTerm: number; killed: number },
+  afterUpdateQuitConsent: null as null | string,
+  legacyInstalled: [] as string[],
+  registry: null as null | { claims: Record<string, string>; failClosed: boolean; legacyOwners: string[] },
+  linkResult: null as null | { ok: false; reason?: string; stale?: true } | { ok: true; linked: string[]; refused: Record<string, string>; binDir: string; adopted: boolean },
+  startResult: null as null | { ok: false; reason: string },
+  removeGate: null as null | Promise<void>,
+  stopGate: null as null | Promise<void>,
+  startGate: null as null | Promise<void>,
+  listGate: null as null | Promise<void>,
+  listFails: false,
+  nextRun: 0,
+};
+function derivedRegistry() {
+  const claims: Record<string, string> = {};
+  const declared: Record<string, string[]> = {};
+  for (const folder of pluginHost.folders) {
+    if (!folder.bundled || !folder.text) continue;
+    try {
+      const doc = JSON.parse(folder.text) as { programs?: unknown; contributes?: { programs?: unknown } };
+      const programs = (doc.contributes?.programs ?? doc.programs) as { name?: unknown; claim?: unknown }[] | undefined;
+      declared[folder.name] = (Array.isArray(programs) ? programs : []).flatMap((p) => (typeof p.name === "string" ? [p.name] : []));
+      for (const p of Array.isArray(programs) ? programs : []) if (p.claim === true && typeof p.name === "string") claims[p.name] ??= folder.name;
+    } catch {}
+  }
+  for (const plugin of (officialPin as { plugins: { name: string; reservedPrograms?: string[] }[] }).plugins)
+    for (const program of plugin.reservedPrograms ?? []) if (declared[plugin.name]?.includes(program)) claims[program] ??= plugin.name;
+  return { claims, failClosed: false, legacyOwners: [] };
+}
+const pluginEvents = nativeEvents();
+export const emitPluginLine = (line: { name: string; run: number; line: string }) => pluginEvents.emit("onLine", line);
+export const emitPluginExit = (exit: { name: string; run: number; status: number | null; signal: number | null; overMemory: boolean }) => pluginEvents.emit("onExit", exit);
+const plugins: Modules["ArdiaPlugins"] = {
+  folder: () => "/config/plugins",
+  list: async () => {
+    await pluginHost.listGate;
+    if (pluginHost.listFails) throw new Error("the plugins folder couldn't be listed");
+    return pluginHost.folders.map((f) => ({ ...f }));
+  },
+  start: async (spec) => {
+    pluginHost.starts.push({ ...spec, run: [...spec.run] });
+    if (pluginHost.startResult) return pluginHost.startResult;
+    const run = ++pluginHost.nextRun;
+    await pluginHost.startGate;
+    return { ok: true, run, pid: 1000 + run };
+  },
+  stop: async (name, run, graceMs) => void (pluginHost.stops.push({ name, run, graceMs }), await pluginHost.stopGate),
+  reply: (name, run, line) => void pluginHost.replies.push({ name, run, line }),
+  event: (name, run, line) => void pluginHost.events.push({ name, run, line }),
+  call: (name, run, line) => void pluginHost.events.push({ name, run, line }),
+  remove: async (name) => (await pluginHost.removeGate, pluginHost.removed.push(name), (pluginHost.folders = pluginHost.folders.filter((f) => f.name !== name)), { ok: true }),
+  linkPrograms: async (spec) => {
+    pluginHost.links.push({ ...spec, programs: spec.programs.map((p) => ({ ...p })) });
+    if (pluginHost.linkResult) return pluginHost.linkResult;
+    return { ok: true, linked: spec.programs.map((p) => p.name), refused: {}, binDir: "/home/.local/bin", adopted: false };
+  },
+  unlinkPrograms: async (name, programs, remove) => (pluginHost.unlinks.push({ name, programs: [...programs], remove }), { ok: true }),
+  sweepPrograms: async (active) => void pluginHost.sweeps.push([...active]),
+  takeAfterUpdateQuitStops: async () => {
+    const stops = pluginHost.afterUpdateQuitStops ?? { consent: "", exitedOnTerm: 0, killed: 0 };
+    pluginHost.afterUpdateQuitStops = null;
+    return stops;
+  },
+  setAfterUpdateQuitConsent: (consent) => void (pluginHost.afterUpdateQuitConsent = consent),
+  legacyProgramsInstalled: async () => [...pluginHost.legacyInstalled],
+  programRegistry: async () => pluginHost.registry ?? derivedRegistry(),
+  revealLog: () => {},
+  revealFolder: () => {},
+  devSnapshotPage: async () => false,
+  hostFetch: async (spec) => {
+    pluginHost.fetches.push({ ...spec, headers: { ...spec.headers }, allowedHosts: [...spec.allowedHosts] });
+    return pluginHost.fetchResult ?? { ok: true, status: 200, statusText: "OK", url: spec.url, headers: {}, body: "" };
+  },
+  storageRead: async (name) => {
+    if (pluginHost.storageReadResult) return pluginHost.storageReadResult;
+    const text = pluginHost.storage[name];
+    return text === undefined ? { status: "missing" } : { status: "ok", text };
+  },
+  storageWrite: async (name, text) => {
+    pluginHost.storageWrites.push({ name, text });
+    if (pluginHost.storageResult) return pluginHost.storageResult;
+    pluginHost.storage[name] = text;
+    return { ok: true };
+  },
+  readPluginFile: async (name, folderId, approved, path) => {
+    pluginHost.fileReads.push({ name, folderId, approved, path });
+    const text = pluginHost.files[`${name}/${path}`];
+    return text === undefined ? { ok: false, reason: "the file wasn't found" } : { ok: true, text };
+  },
+  addListener: pluginEvents.addListener,
+};
+
 export const shellNativeModules: Modules = {
   ArdiaShell: shell,
   ArdiaAppWindows: windowsModule,
@@ -366,20 +603,43 @@ export const shellNativeModules: Modules = {
   ArdiaApp: app,
   ArdiaUpdater: updater,
   ArdiaNotifications: notifications,
+  ArdiaLocation: location,
   ArdiaScripting: scripting,
   ArdiaDev: dev,
   ArdiaSystem: system,
   ArdiaCalendar: calendar,
   ArdiaKeychain: keychain,
   ArdiaGlassEffect: { isLiquidGlass: () => false },
-  ArdiaDockSelection: { iconTheme: () => Promise.resolve(null) },
-  ArdiaInlineCompletion: { complete: () => Promise.resolve(0) },
+  ArdiaDockSelection: { iconTheme: () => Promise.resolve(null), iconAccent: () => Promise.resolve(null) },
+  ArdiaInlineCompletion: { complete: () => Promise.resolve(0), copyFieldAs: () => Promise.resolve() },
   ArdiaTranslate: translate,
   ArdiaMagnifyArea: magnifyArea,
+  ArdiaPeekStage: { devState: () => Promise.resolve([]), devPageFrames: () => Promise.resolve([]) },
   ArdiaFileDrop: fileDrop,
   ArdiaCli: cli,
   ArdiaUserScripts: userScripts,
   ArdiaConfig: config,
   ArdiaAutomation: automation,
+  ArdiaPlugins: plugins,
   ArdiaSystemSignals: systemSignalsModule,
+  ArdiaTelemetryLocal: telemetryLocalModule,
+  ArdiaReport: reportModule,
+};
+
+export const inputSourceKeys = {
+  pending: 0,
+  take() {
+    const taken = this.pending;
+    this.pending = 0;
+    return taken;
+  },
+};
+
+export const editKeyAcks = {
+  pending: {} as Record<string, number>,
+  take() {
+    const taken = this.pending;
+    this.pending = {};
+    return taken;
+  },
 };

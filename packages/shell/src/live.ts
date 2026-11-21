@@ -31,16 +31,27 @@ export type SystemCalendarEvent = {
   attendees: CalendarParticipant[];
 };
 
+export type CalendarAccessRequest = {
+  granted: boolean;
+  status: CalendarAuthorization;
+  error: string | null;
+  responsible: "self" | "other" | "unknown";
+  ms: number;
+};
+
 export type CalendarNative = {
   addListener(name: "onCalendarChanged", listener: () => void): EventSubscription;
   authorizationStatus(): CalendarAuthorization;
-  requestAccess(): Promise<boolean>;
+  requestAccess(): Promise<CalendarAccessRequest>;
   calendars(): Promise<SystemCalendar[]>;
   events(start: number, end: number, calendarIds: string[]): Promise<SystemCalendarEvent[]>;
 };
 
+export type KeychainReadResult = { status: "ok"; value: string } | { status: "missing" } | { status: "error"; reason: string };
+
 export type KeychainNative = {
   get(account: string): Promise<string | null>;
+  read(account: string): Promise<KeychainReadResult>;
   set(account: string, secret: string): Promise<boolean>;
   delete(account: string): Promise<boolean>;
 };

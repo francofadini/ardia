@@ -1,13 +1,14 @@
 import { copyText } from "../../platform/clipboard";
-import { fileExists, moveToTrash, openFile, revealFile } from "../../platform/files";
+import { fileExists, moveToTrash, revealFile } from "../../platform/files";
+import { openDownload } from "./openDownload";
 import { showMenu, type MenuItem } from "../../platform/menus";
 import { menuSections } from "../app/menuSections";
 import { openInternalPage } from "../pages/urls";
 import { removeDownload } from "../windows/actions";
 import { opensWhenDone, toggleOpenWhenDone } from "../windows/downloadWatch";
 import { cancelDownload, keepDownload, pauseDownload, resumeDownload, type Download } from "./actions";
-
-export const awaitsKeep = (d: Pick<Download, "state" | "dangerous">) => d.state === "downloading" && d.dangerous === true;
+import { PLATFORM_TERMS } from "../../lib/platformTerms";
+import { awaitsKeep } from "./status";
 
 export type DownloadMenuState = { held: boolean; downloading: boolean; paused: boolean; opensWhenDone: boolean; fileExists: boolean };
 
@@ -25,7 +26,7 @@ export function downloadMenuItems(d: DownloadMenuState): MenuItem[] {
         ]
       : [
           { id: "open", title: "Open", symbol: "arrow.up.forward.app", enabled: d.fileExists },
-          { id: "reveal", title: "Show in Finder", symbol: "folder", enabled: d.fileExists },
+          { id: "reveal", title: `Show in ${PLATFORM_TERMS.fileManager}`, symbol: "folder", enabled: d.fileExists },
         ];
   return menuSections(
     lead,
@@ -35,7 +36,7 @@ export function downloadMenuItems(d: DownloadMenuState): MenuItem[] {
     ],
     [
       { id: "remove", title: "Remove from List", symbol: "minus.circle", enabled: !d.downloading },
-      d.fileExists && { id: "trash", title: "Move to Trash", symbol: "trash" },
+      d.fileExists && { id: "trash", title: `Move to ${PLATFORM_TERMS.trash}`, symbol: "trash" },
     ],
   );
 }
@@ -50,7 +51,7 @@ export async function downloadMenu(d: Download, windowId: string) {
   if (choice === "resume") void resumeDownload(d.id);
   if (choice === "keep") void keepDownload(d.id);
   if (choice === "cancel") void cancelDownload(d.id);
-  if (choice === "open") void openFile(d.path);
+  if (choice === "open") void openDownload(d.path);
   if (choice === "reveal") void revealFile(d.path);
   if (choice === "copy") copyText(d.url);
   if (choice === "page") openInternalPage("downloads", windowId);
