@@ -1,5 +1,6 @@
 #!/bin/bash
-# Brings Franco's fork up to date with the original (remote upstream = mantrakp04/ardia) by merging, never rebasing:
+# Brings Franco's fork up to date with the original (remote upstream = mantrakp04/ardia), and ~/forks/ardia-plugins
+# with ardia-browser/plugins, by merging, never rebasing:
 # main is published on origin, and the fork's own commits stay as they are.
 #
 #   scripts/franco/sync-upstream.sh            fetch, back up main, start the merge and list the conflicts
@@ -15,7 +16,25 @@ cd "$repo"
 say() { printf '\n== %s\n' "$*"; }
 die() { echo "sync-upstream: $*" >&2; exit 1; }
 
+plugins_step() {
+  local plugins
+  plugins="$(dirname "$repo")/ardia-plugins"
+  [ -d "$plugins/.git" ] || { echo "No está ~/forks/ardia-plugins: el comando ardia no se sincroniza."; return; }
+  say "El comando ardia (ardia-plugins, rama franco)"
+  [ "$(git -C "$plugins" branch --show-current)" = franco ] || die "ardia-plugins no está en la rama franco"
+  [ -z "$(git -C "$plugins" status --porcelain --untracked-files=no)" ] || die "ardia-plugins tiene cambios sin commitear"
+  git -C "$plugins" fetch --quiet origin
+  git -C "$plugins" branch -f "backup/pre-sync-$(date +%Y-%m-%d-%H%M)" franco
+  if git -C "$plugins" merge --no-edit origin/main >/tmp/sync-upstream-plugins.log 2>&1; then
+    echo "Al día: $(git -C "$plugins" log --oneline -1)"
+  else
+    echo "Conflictos en ardia-plugins (resolvelos igual que en ardia):"
+    git -C "$plugins" status --short | awk '$1 ~ /^(UU|AA|DU|UD|AU|UA|DD)$/'
+  fi
+}
+
 merge_step() {
+  plugins_step
   [ "$(git branch --show-current)" = main ] || die "estás en $(git branch --show-current), no en main"
   [ ! -e "$(git rev-parse --git-path MERGE_HEAD)" ] || die "ya hay un merge abierto: resolvelo o abortalo (git merge --abort)"
   local dirty

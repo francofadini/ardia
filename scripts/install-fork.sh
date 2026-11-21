@@ -43,4 +43,10 @@ ditto "$app" /Applications/Ardia.app
 rm -rf "$dist"
 if [ "$was_running" = 1 ]; then open /Applications/Ardia.app; fi
 echo "Listo: Ardia instalada desde $(git -C "$repo" rev-parse --short HEAD)."
+cli_install="$(dirname "$repo")/ardia-plugins/scripts/franco/ardia-plugins-instalar.sh"
+if [ -x "$cli_install" ]; then
+  "$cli_install" || echo "ardia-instalar: la app quedó instalada, pero el comando ardia no; corré ardia-plugins-instalar" >&2
+else
+  echo "ardia-instalar: no está ~/forks/ardia-plugins; el comando ardia no se actualizó" >&2
+fi
 echo "Si el import de Dia vuelve a fallar: tccutil reset AppleEvents com.ardia.browser"

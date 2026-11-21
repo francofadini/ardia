@@ -15,6 +15,7 @@ Keeping up with upstream (`mantrakp04/ardia`) is a merge, never a rebase: `scrip
 fork's changes, keep upstream's. Push and install only with Franco's OK.
 
 The `ardia` command no longer lives in this repo: upstream moved it to `ardia-browser/plugins` (TypeScript, built
-with Bun). Until the fork's CLI changes are ported there, `~/.local/bin/ardia` runs a frozen copy of the old Python
-CLI (`~/forks/.sync-backups/ardia-cli-pre-sync`), which only speaks control protocol 2. The app on main since the
-2026-11-21 sync requires protocol 4, so don't install main into `/Applications` until that port is done.
+with Bun). Franco's fork of it is `~/forks/ardia-plugins` (branch `franco`): it announces the tabs a session drives
+(`controlling`, the Claude mark), opens agent windows in `$ARDIA_PROFILE` (`windows.create {agent: true}`) and closes
+them with the session. The app and the command must match, so `install-fork.sh` installs the command too
+(`ardia-plugins-instalar`) after the app. A change to either side of that contract goes in both repos.
