@@ -117,6 +117,13 @@ export function moveTabsInto(s: BrowserState, ids: string[], targetId: string): 
   const activeTabIds = { ...w.activeTabIds };
   for (const t of moving) activeTabIds[t.profileId] ??= t.id;
   next = { ...next, windows: { ...next.windows, [targetId]: { ...w, activeTabIds } } };
+  const movedIds = new Set(moving.map((t) => t.id));
+  for (const id of sources) {
+    const src = next.windows[id];
+    if (src?.kind === "main" && src.agentTabs?.some((t) => movedIds.has(t))) {
+      next = { ...next, windows: { ...next.windows, [id]: { ...src, agentTabs: src.agentTabs.filter((t) => !movedIds.has(t)) } } };
+    }
+  }
   for (const id of sources) {
     const src = next.windows[id];
     if (!src || viewTabIds(next, id).length) continue;

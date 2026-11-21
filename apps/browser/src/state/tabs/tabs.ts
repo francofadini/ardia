@@ -306,6 +306,7 @@ export function withNewTab(s: BrowserState, windowId: string, o: NewTabOptions =
     ...w,
     tabIds: orderSections(tabIds, tabs, s.groups),
     activeTabIds: w.activeTabIds[profileId] ? w.activeTabIds : { ...w.activeTabIds, [profileId]: tab.id },
+    ...(w.kind === "main" && w.agent ? { agentTabs: [...(w.agentTabs ?? []), tab.id] } : {}),
   };
   let next: BrowserState = {
     ...s,

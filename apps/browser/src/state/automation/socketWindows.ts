@@ -1,5 +1,6 @@
 import type { BrowserState } from "../browser/store";
-import { activeTabId, inPinnedContainer, pinKeyOf, sidebarSideOf, tabLayoutOf, tabsShownIn } from "../browser/model";
+import { activeTabId, sidebarSideOf, tabLayoutOf, tabsShownIn } from "../browser/model";
+import { closeAgentWindow } from "../windows/agentWindows";
 import { controlTabTargets } from "../../platform/control";
 import { openInMainWindow, openLittleArdia } from "../littleArdia/actions";
 import { focusWindow } from "../windows/nativeWindow";
@@ -62,17 +63,7 @@ async function createAgentWindow(params: Record<string, unknown>, call: SocketCa
   return { ...windowRow(now(), id), targetId };
 }
 
-function closeAgentWindow(windowId: string) {
-  const s = now();
-  const own = (s.windows[windowId]?.tabIds ?? []).filter((id) => {
-    const t = s.tabs[id];
-    return !!t && t.windowId === windowId && !t.pin && !inPinnedContainer(s, id) && pinKeyOf(t) === t.id;
-  });
-  if (own.length) s.closeTabs(own, { lastClosesWindow: true });
-  if (now().windows[windowId]) now().closeWindow(windowId);
-  expect(!now().windows[windowId], `window ${windowId} didn't close.`);
-  return { ok: true };
-}
+const closeAgentWindowNow = (windowId: string) => ({ ok: true, ...closeAgentWindow(windowId) });
 
 function url(value: unknown): string | undefined {
   if (value === undefined) return undefined;
@@ -109,7 +100,7 @@ function switchProfile(params: Record<string, unknown>) {
 
 async function closeWindow(params: Record<string, unknown>, call: SocketCall, kinds: readonly AutomationWindowKind[] = ["normal", "little"]) {
   const w = windowOf(params.window, kinds);
-  if (w.kind === "main" && w.agent) return closeAgentWindow(w.id);
+  if (w.kind === "main" && w.agent) return closeAgentWindowNow(w.id);
   const outcome = await closeWindowAsked(w.id, { mayClose: call.serving, ask: askWhereSeen(`Window ${w.id} stayed open`, call) });
   if (outcome === "busy") throw new OpError("refused", `Window ${w.id} is already closing or asking whether to close.`);
   if (outcome === "cancelled") throw new OpError("refused", `Window ${w.id} stayed open: closing it was cancelled.`);
@@ -150,9 +141,9 @@ export const WINDOW_METHODS: MethodSpec[] = [
   {
     name: "windows.close",
     mutates: true,
-    description: "Close a window as its close button does: Ardia asks first when the user set it to (refused when nobody can see the question), and the last window is kept to reopen (its tabs go to recently closed). An agent's window (windows.create agent) closes at once, with only the tabs opened in it",
+    description: "Close a window as its close button does: Ardia asks first when the user set it to (refused when nobody can see the question), and the last window is kept to reopen (its tabs go to recently closed). An agent's window (windows.create agent) closes at once with the tabs the agent opened in it; any other tab it holds that would be lost keeps the window open as the user's (closed: false, kept)",
     params: obj({ window: WINDOW }, ["window"]),
-    result: "{ok}",
+    result: "{ok, closed?, kept?}",
     run: closeWindow,
   },
   {
