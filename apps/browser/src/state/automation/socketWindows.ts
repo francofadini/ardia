@@ -1,5 +1,6 @@
 import type { BrowserState } from "../browser/store";
-import { activeTabId, sidebarSideOf, tabLayoutOf, tabsShownIn } from "../browser/model";
+import { activeTabId, inPinnedContainer, pinKeyOf, sidebarSideOf, tabLayoutOf, tabsShownIn } from "../browser/model";
+import { controlTabTargets } from "../../platform/control";
 import { openInMainWindow, openLittleArdia } from "../littleArdia/actions";
 import { focusWindow } from "../windows/nativeWindow";
 import { focusedWindowOf } from "../windows/ui";
@@ -29,7 +30,48 @@ export function windowRow(s: BrowserState, id: string) {
     maximized: !!w.maximized,
     fullScreen: !!w.fullScreen,
     createdAt: w.createdAt,
+    agent: w.kind === "main" && !!w.agent,
   };
+}
+
+const TARGET_WAIT_MS = 10_000;
+const TARGET_POLL_MS = 100;
+const AGENT_START_URL = "about:blank";
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function targetOfNewTab(tabId: string, call: SocketCall): Promise<string> {
+  for (const end = Date.now() + TARGET_WAIT_MS; Date.now() < end; await pause(TARGET_POLL_MS)) {
+    call.stillServing();
+    if (!now().tabs[tabId]) throw new OpError("failed", "The new window's tab closed before it loaded.");
+    const targets = await controlTabTargets([tabId]).catch(() => null);
+    const targetId = targets?.[tabId]?.targetId;
+    if (targetId) return targetId;
+  }
+  throw new OpError("failed", `The new window's tab didn't load in ${TARGET_WAIT_MS / 1000} s.`);
+}
+
+async function createAgentWindow(params: Record<string, unknown>, call: SocketCall) {
+  const profileId = profileArg(params.profile);
+  const id = now().createWindow({ profileId, url: url(params.url) ?? AGENT_START_URL, agent: true, background: true });
+  expect(!!id && !!now().windows[id], "the window didn't open.");
+  if (params.layout !== undefined && tabLayoutOf(now(), id) !== params.layout) now().toggleTabLayout(id);
+  const tab = activeTabId(now(), id);
+  if (!tab) throw new OpError("failed", "The new window has no tab.");
+  const targetId = await targetOfNewTab(tab, call);
+  return { ...windowRow(now(), id), targetId };
+}
+
+function closeAgentWindow(windowId: string) {
+  const s = now();
+  const own = (s.windows[windowId]?.tabIds ?? []).filter((id) => {
+    const t = s.tabs[id];
+    return !!t && t.windowId === windowId && !t.pin && !inPinnedContainer(s, id) && pinKeyOf(t) === t.id;
+  });
+  if (own.length) s.closeTabs(own, { lastClosesWindow: true });
+  if (now().windows[windowId]) now().closeWindow(windowId);
+  expect(!now().windows[windowId], `window ${windowId} didn't close.`);
+  return { ok: true };
 }
 
 function url(value: unknown): string | undefined {
@@ -67,6 +109,7 @@ function switchProfile(params: Record<string, unknown>) {
 
 async function closeWindow(params: Record<string, unknown>, call: SocketCall, kinds: readonly AutomationWindowKind[] = ["normal", "little"]) {
   const w = windowOf(params.window, kinds);
+  if (w.kind === "main" && w.agent) return closeAgentWindow(w.id);
   const outcome = await closeWindowAsked(w.id, { mayClose: call.serving, ask: askWhereSeen(`Window ${w.id} stayed open`, call) });
   if (outcome === "busy") throw new OpError("refused", `Window ${w.id} is already closing or asking whether to close.`);
   if (outcome === "cancelled") throw new OpError("refused", `Window ${w.id} stayed open: closing it was cancelled.`);
@@ -94,15 +137,20 @@ export const WINDOW_METHODS: MethodSpec[] = [
   {
     name: "windows.create",
     mutates: true,
-    description: "Open a new window",
-    params: obj({ profile: PROFILE, url: text("The first tab's URL; a New Tab when left out"), layout: oneOf(["sidebar", "top"], "Tabs in a sidebar or along the top") }),
-    result: "window",
-    run: createWindow,
+    description: "Open a new window; agent: true opens it behind the user's windows as the caller's own, answers once its tab has a DevTools target (targetId), and closes it with its last tab without asking",
+    params: obj({
+      profile: PROFILE,
+      url: text("The first tab's URL; a New Tab when left out (about:blank for an agent's window)"),
+      layout: oneOf(["sidebar", "top"], "Tabs in a sidebar or along the top"),
+      agent: bool("The caller's own window: windows.close and closing its last tab close it without asking"),
+    }),
+    result: "window (+ targetId with agent)",
+    run: (p, call) => (p.agent === true ? createAgentWindow(p, call) : createWindow(p)),
   },
   {
     name: "windows.close",
     mutates: true,
-    description: "Close a window as its close button does: Ardia asks first when the user set it to (refused when nobody can see the question), and the last window is kept to reopen (its tabs go to recently closed)",
+    description: "Close a window as its close button does: Ardia asks first when the user set it to (refused when nobody can see the question), and the last window is kept to reopen (its tabs go to recently closed). An agent's window (windows.create agent) closes at once, with only the tabs opened in it",
     params: obj({ window: WINDOW }, ["window"]),
     result: "{ok}",
     run: closeWindow,

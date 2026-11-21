@@ -50,6 +50,7 @@ export type CreateWindowOptions = {
   linkApp?: string;
   background?: boolean;
   chromeWindow?: string; opensBehind?: string;
+  agent?: boolean;
 };
 
 export type CloseWindowOptions = { keepsLastWindow?: boolean };
@@ -163,7 +164,7 @@ export const createWindowsSlice: StateCreator<BrowserState, [], [], WindowsSlice
     const w: BrowserWindow =
       kind === "small"
         ? { ...smallWindow(id, profileId, o.frame ?? null), ...(o.linkPointer ? { linkPointer: o.linkPointer } : {}), ...(o.linkApp ? { linkApp: o.linkApp } : {}) }
-        : { ...emptyWindow(id, profileId, kind, o.frame ?? null), ...(o.chromeWindow ? { chromeWindow: o.chromeWindow } : {}), ...(o.opensBehind && kind === "main" ? { opensBehind: o.opensBehind } : {}) };
+        : { ...emptyWindow(id, profileId, kind, o.frame ?? null), ...(o.chromeWindow ? { chromeWindow: o.chromeWindow } : {}), ...(o.opensBehind && kind === "main" ? { opensBehind: o.opensBehind } : {}), ...(o.agent && kind === "main" ? { agent: true as const } : {}) };
     const from = o.tabIds?.length && !small ? s.windows[s.tabs[o.tabIds[0]!]?.windowId ?? ""] : undefined;
     if (from?.autoHideTabs !== undefined && !isSmallWindow(from)) {
       w.autoHideTabs = from.autoHideTabs;

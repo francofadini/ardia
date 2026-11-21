@@ -42,7 +42,7 @@ type WindowBase = {
 };
 
 export type BrowserWindow =
-  | (WindowBase & { kind: "main"; chromeWindow?: string; opensBehind?: string })
+  | (WindowBase & { kind: "main"; chromeWindow?: string; opensBehind?: string; agent?: true })
   | (WindowBase & { kind: "private"; chromeWindow?: string })
   | (WindowBase & { kind: "small"; linkPointer?: [number, number]; linkApp?: string });
 

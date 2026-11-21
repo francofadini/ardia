@@ -424,3 +424,49 @@ test("with Top Apps kept running, ⌘W on a regular page beside a running Top Ap
   assert.equal(S().tabs[app].page.kind, "loaded");
   S().updateSettings({ keepTopAppsRunning: false });
 });
+
+for (const [what, made] of [["Chrome opened", (n) => ({ chromeWindow: `cw-${n}` })], ["an agent opened", () => ({ agent: true })]]) {
+  test(`a window ${what} closes with its last tab, pinned items or not`, () => {
+    S().hydrate({});
+    const first = S().createWindow({ url: "https://pinned.com/" });
+    S().pinTabs([S().windows[first].tabIds[0]], true);
+    const w = S().createWindow({ url: "https://agent.com/", ...made(1) });
+    const agentTab = S().windows[w].tabIds.find((id) => S().tabs[id].url === "https://agent.com/");
+    assert.ok(viewTabIds(S(), w).some((id) => S().tabs[id].pin), "the profile's tile shows in the new window");
+    S().closeTab(agentTab);
+    assert.equal(S().windows[w], undefined, "the new window closed");
+    assert.ok(S().windows[first], "the other window stays");
+  });
+
+  test(`closing the last tab of a window ${what} asks nothing, so a declined confirmation can't keep it`, async () => {
+    S().hydrate({});
+    S().createWindow({ url: "https://mine.com/" });
+    const w = S().createWindow({ url: "https://agent.com/", ...made(2) });
+    await closeTab(S().windows[w].tabIds[0]);
+    assert.equal(S().windows[w], undefined);
+  });
+
+  test(`with shared tabs, a window ${what} closes with its own last tab although it lists the profile's tabs`, () => {
+    S().hydrate({});
+    S().updateSettings({ shareTabsAcrossWindows: true });
+    const first = S().createWindow({ url: "https://mine.com/" });
+    S().newTab(first, { url: "https://mine2.com/" });
+    const w = S().createWindow({ url: "https://agent.com/", ...made(3) });
+    const agentTab = S().windows[w].tabIds.find((id) => S().tabs[id].url === "https://agent.com/");
+    assert.ok(viewTabIds(S(), w).some((id) => S().tabs[id].url === "https://mine.com/"), "the new window lists the shared tabs");
+    S().closeTab(agentTab);
+    assert.equal(S().windows[w], undefined, "the new window closed");
+    assert.ok(S().windows[first], "the user's window stays");
+    assert.deepEqual(viewTabIds(S(), first).map((id) => S().tabs[id].url).sort(), ["https://mine.com/", "https://mine2.com/"], "and keeps its tabs, without the agent's");
+    S().updateSettings({ shareTabsAcrossWindows: false });
+  });
+}
+
+test("a plain window still asks before closing its last tab, and isn't an agent's", async () => {
+  S().hydrate({});
+  S().createWindow({ url: "https://mine.com/" });
+  const w = S().createWindow({ url: "https://other.com/" });
+  const { asksBeforeClosingLastTab } = await import("../windows/windowClose.ts");
+  assert.equal(asksBeforeClosingLastTab(w), S().settings.warnBeforeClosingLastTab);
+  assert.equal(S().windows[w].agent, undefined);
+});

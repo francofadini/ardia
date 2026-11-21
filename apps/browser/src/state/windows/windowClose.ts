@@ -3,7 +3,7 @@ import { closeWindow as closeNativeWindow, onWindowEvent } from "../../platform/
 import { useBrowser } from "../browser/store";
 import { inPinnedContainer, plural, profileFor } from "../browser/model";
 import { tabsLostWithWindow } from "../tabs/sharedWindowClose";
-import { isLastRegularWindow, isOpenRegularWindow, isSmall } from "./small";
+import { closesWithItsLastTab, isLastRegularWindow, isOpenRegularWindow, isSmall } from "./small";
 import { closeLittleArdia } from "../littleArdia/actions";
 import { closeWindowAnimated } from "./closeAnimated";
 import { isEmptyCardTab } from "../omnibox/newTabBarPolicy";
@@ -124,7 +124,7 @@ export async function decideLastTabClose(windowId: string, ask: CloseAsk = confi
 export function asksBeforeClosingLastTab(windowId: string) {
   const s = useBrowser.getState();
   const w = s.windows[windowId];
-  return !!w && s.settings.warnBeforeClosingLastTab && w.kind !== "private" && unpinnedOpenTabIds(windowId).length > 0;
+  return !!w && s.settings.warnBeforeClosingLastTab && w.kind !== "private" && !closesWithItsLastTab(w) && unpinnedOpenTabIds(windowId).length > 0;
 }
 
 export const unpinnedOpenTabIds = (windowId: string) => {

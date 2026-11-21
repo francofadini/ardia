@@ -19,6 +19,7 @@ import { samePage } from "../../lib/url";
 import { historyOf } from "../history/history";
 import { pinHome } from "../pins/pinHomes";
 import { noteTopAppsKeptRunning } from "../telemetry/tabSleepCounts";
+import { closesWithItsLastTab } from "../windows/small";
 
 export type NewTabOptions = {
   url?: string;
@@ -81,16 +82,22 @@ export function closingTabs(s: BrowserState, ids: string[], { lastClosesWindow =
   const gone = asked.filter((id) => !inPinnedContainer(next, id));
   const goneIds = new Set(gone);
   const closedWindows = new Set<string>();
+  const closingWithTheirTabs = new Set<string>();
   for (const w of Object.values(next.windows)) {
     const view = viewTabIds(next, w.id);
     const shown = view.filter((id) => goneIds.has(id));
     const keptRunning = keepTopApps && view.some((id) => !goneIds.has(id) && runningKept(next, id));
-    if (!shown.length || !view.every((id) => goneIds.has(id) || isAsleep(next.tabs[id]) || (keptRunning && keptWithTopApp(next, id)))) continue;
+    const withItsLastTab = closesWithItsLastTab(w);
+    const idle = (id: string) => isAsleep(next.tabs[id]) || (withItsLastTab && next.tabs[id]?.page.kind === "frozen");
+    if (!shown.length || !view.every((id) => goneIds.has(id) || idle(id) || (keptRunning && keptWithTopApp(next, id)))) continue;
     const keepsWindow = (keptRunning && !shown.every((id) => isEmptyCardTab(next, next.tabs[id]))) || !lastClosesWindow || leavesEmptyWindow(shown.length > 1 ? removeTabs(next, shown.slice(1), false) : next, shown[0]!);
     if (keepsWindow) next = withNewTab(next, w.id)[0];
-    else closedWindows.add(w.id);
+    else {
+      closedWindows.add(w.id);
+      if (withItsLastTab) closingWithTheirTabs.add(w.id);
+    }
   }
-  const removed = gone.filter((id) => !closedWindows.has(next.tabs[id]!.windowId));
+  const removed = gone.filter((id) => !closedWindows.has(next.tabs[id]!.windowId) || closingWithTheirTabs.has(next.tabs[id]!.windowId));
   return [removeTabs(next, removed, true), [...closedWindows]];
 }
 

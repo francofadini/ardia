@@ -53,7 +53,7 @@ const publicProfiles = <T,>(byProfile: Record<string, T>) => Object.fromEntries(
 
 const persistedTab = (t: Tab) => ({ ...t, page: savedPage(t) });
 const savedWindows = (s: Pick<BrowserState, "windows">) =>
-  Object.values(s.windows).filter(isRegularWindow).map(({ chromeWindow: _c, kind: _k, ...w }) => ({ ...w, incognito: false }));
+  Object.values(s.windows).filter(isRegularWindow).map(({ chromeWindow: _c, agent: _a, kind: _k, ...w }) => ({ ...w, incognito: false }));
 const savedWindowsWithTabsShown = (s: Pick<BrowserState, "windows" | "settings">) => savedWindows(s).map((w) => ({ ...w, sidebarOpen: tabsShownIn(s, w.id) }));
 const savedWindowIds = (s: Pick<BrowserState, "windows">) => new Set(savedWindows(s).map((w) => w.id));
 const savedFocus = (s: Pick<BrowserState, "windows" | "ui">) => {

@@ -12,6 +12,8 @@ export const isSmallWindow = (w: BrowserWindow | undefined): boolean => w?.kind 
 
 export const isRegularWindow = (w: BrowserWindow | undefined): w is MainWindow => w?.kind === "main";
 
+export const closesWithItsLastTab = (w: BrowserWindow | undefined): boolean => !!w && w.kind !== "small" && (!!w.chromeWindow || (w.kind === "main" && !!w.agent));
+
 export const isSmall = (s: Pick<BrowserState, "windows">, windowId?: string | null): boolean =>
   !!windowId && s.windows[windowId]?.kind === "small";
 

@@ -5,6 +5,7 @@ import type { Tab } from "../browser/types";
 import { hasPage, isAsleep } from "../tabs/pageSession";
 import { keptWithTopApp } from "../tabs/tabs";
 import { newTabOpensOf } from "../settings/settings";
+import { closesWithItsLastTab } from "../windows/small";
 
 export const NEW_TAB_BAR_POLICY = {
   closeTabKeyOnlyDismissesBar: true,
@@ -37,7 +38,7 @@ export const setLastTabKeepsWindow = (keeps: boolean) => void (lastTabKeepsWindo
 export function leavesEmptyWindow(s: BrowserState, id: string): boolean {
   const tab = s.tabs[id];
   const w = tab && s.windows[tab.windowId];
-  if (!w || w.kind === "small") return false;
+  if (!w || w.kind === "small" || closesWithItsLastTab(w)) return false;
   if (lastTabKeepsWindow) return lastTabOfWindow(s, id);
   if (!isEmptyCardTab(s, tab) && pinnedItemsRemain(s, id)) return closesWindow(s, id);
   if (!NEW_TAB_BAR_POLICY.closingLastTabLeavesEmptyWindow || !newTabOpensBar(s)) return false;
