@@ -2,25 +2,35 @@ import { useEffect, useState } from "react";
 import { Animated, Image, StyleSheet, View, type ViewStyle } from "react-native";
 import { stopProgramControl, useControlIndicator } from "../../state/app/programControl";
 import { useSettings } from "../../state/browser/hooks";
-import { controlLine, controlLineText } from "../../state/app/controlCaller";
+import { controlLine, controlLineText, controlTabLine } from "../../state/app/controlCaller";
+import { useTabController } from "../../state/app/controlledTabs";
+import { useIsFocusedWindow } from "../../state/windows/hooks";
+import { ControllerMark } from "./ControllerMark";
 import { fileIcon } from "../../state/app/system";
 import { useTheme } from "../ui/theme";
 import { Button, Dot, space, Symbol, Text, usePresence } from "../ui";
 import { Hud } from "./Hud";
 import { CONTROL_PILL_MOTION } from "./tokens";
 
+const WINDOW_PILL = "window";
+const TAB_KEY = "tab:";
 const PILL_HEIGHT = 32;
 const PILL_BOTTOM = 12;
 
-export function ControlPill({ style }: { style?: Animated.WithAnimatedValue<ViewStyle> }) {
+export function ControlPill({ tabId, windowId, windowPill, style }: { tabId: string; windowId: string; windowPill: boolean; style?: Animated.WithAnimatedValue<ViewStyle> }) {
   const theme = useTheme();
-  const shown = useControlIndicator((s) => s.shown);
+  const controller = useTabController(tabId);
+  const appShown = useControlIndicator((s) => s.shown);
+  const focused = useIsFocusedWindow(windowId);
   const caller = useControlIndicator((s) => s.caller);
   const icon = useAppIcon(caller?.app ?? null);
-  const line = controlLine(caller);
   const compact = useSettings((s) => s.compactCliPill);
-  const { shown: mounted, appear } = usePresence(shown || null, CONTROL_PILL_MOTION);
+  const key = controller !== null ? `tab:${controller}` : appShown && windowPill && focused ? WINDOW_PILL : null;
+  const shown = key !== null;
+  const { shown: mounted, appear } = usePresence(key, CONTROL_PILL_MOTION);
   if (!mounted) return null;
+  const tabController = mounted === WINDOW_PILL ? null : mounted.slice(TAB_KEY.length);
+  const line = tabController ? controlTabLine(tabController) : controlLine(caller);
   return (
     <Animated.View pointerEvents="box-none" style={[StyleSheet.absoluteFill, style]}>
       <View pointerEvents="box-none" style={{ position: "absolute", left: space.l, right: space.l, bottom: PILL_BOTTOM, alignItems: "center" }}>
@@ -34,7 +44,9 @@ export function ControlPill({ style }: { style?: Animated.WithAnimatedValue<View
         >
           <Hud shape="capsule" height={PILL_HEIGHT} accessibilityRole="alert" accessibilityLabel={controlLineText(line)}>
             <View style={compact ? COMPACT_ROW : PILL_ROW} tooltip={compact ? controlLineText(line) : undefined}>
-              {icon ? (
+              {tabController ? (
+                <ControllerMark controller={tabController} size={TERMINAL_DOT} />
+              ) : icon ? (
                 <Image source={{ uri: icon }} style={APP_ICON} />
               ) : (
                 <Dot size={TERMINAL_DOT} color={theme.textPrimary}>

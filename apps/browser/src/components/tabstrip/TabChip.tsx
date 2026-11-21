@@ -10,6 +10,7 @@ import { currentMovingTabIds } from "../../state/tabs/topStrip";
 import { TabBadges } from "../media/TabBadges";
 import { TabIcon } from "../sidebar/TabIcon";
 import { Button, FadeLabel, HoverFill, Symbol, useTooltip } from "../ui";
+import { ControlledTabMark } from "../sidebar/ControlledTabMark";
 import { surfaceTheme, useTheme } from "../ui/theme";
 import { ThemeOverride } from "../ui/ThemeOverride";
 import { toolbarPalette, useEasedColor } from "../ui/toolbarColors";
@@ -202,7 +203,12 @@ export const TabChip = memo(function TabChip({ tabId, width, drawn, tuck, dragge
                   tooltip={tuck ? "Hide in Group" : closeControl.tooltip}
                 />
               }
-              badge={<UnreadCount unread={unread} ink={ink} />}
+              badge={
+                <>
+                  <UnreadCount unread={unread} ink={ink} />
+                  <ControlledTabMark tabId={tab.id} variant="chip" />
+                </>
+              }
             >
               <View pointerEvents="none">
                 <TabIcon tabId={tab.id} url={tab.url} favicon={tab.favicon} icon={tab.customIcon} color={active ? ink : undefined} />

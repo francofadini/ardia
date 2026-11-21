@@ -9,6 +9,7 @@ import { firstRowTopOf, listTopGap } from "./geometry";
 import { useIsActiveTab, useSettings, useTab, useWindowId } from "../../state/browser/hooks";
 import { useIsSelected } from "../../state/pins/hooks";
 import { NextMeetingBadge } from "../live/NextMeetingBadge";
+import { ControlledTabMark } from "./ControlledTabMark";
 import { TileStatus } from "./TileStatus";
 import { returnShownTabToPinnedUrl } from "../../state/sidebar/actions";
 import { pinSlotPitch, cellKey, tailKey } from "./dragModel";
@@ -155,6 +156,7 @@ const PinnedTile = memo(function PinnedTile({ tabId, width, sliding, x, y }: { t
     () => (
       <>
         <NextMeetingBadge tabId={tabId} />
+        <ControlledTabMark tabId={tabId} variant="tile" />
         <TileStatus tabId={tabId} />
       </>
     ),

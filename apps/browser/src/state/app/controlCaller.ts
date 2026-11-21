@@ -34,4 +34,6 @@ export function controlLine(caller: ControlCaller | null): ControlLine {
   return { lead: "", name: caller.name, rest: " is controlling Ardia" };
 }
 
-export const controlLineText = ({ lead, name, rest }: ControlLine) => `${lead}${name}${rest}`;
+export const controlTabLine = (name: string): ControlLine => ({ lead: "", name, rest: " is controlling this tab" });
+
+export const controlLineText =({ lead, name, rest }: ControlLine) => `${lead}${name}${rest}`;

@@ -18,6 +18,7 @@ import { useBrowser } from "../browser/store";
 import { NoCommandWindowError, runCommand } from "../commands/commands";
 import { noteControlCaller, noteSocketRun, noteSocketServing } from "../app/programControl";
 import { parseControlCaller, type ControlCaller } from "../app/controlCaller";
+import { dropControlling, noteControlling } from "../app/controlledTabs";
 import { errorText } from "../../lib/errors";
 import { redactedEventData } from "./eventRedaction";
 import { automationWindows, type AutomationWindow } from "./automationWindows";
@@ -234,6 +235,10 @@ function answerAs(origin: Pick<SocketOrigin, "segment">, connection: number, met
       if (caller) noteControlCaller(caller);
       return { result: { ok: !!caller } };
     }
+    case "controlling": {
+      const targets = (params.targets as string[]).filter((t) => !!t);
+      return noteControlling(connection, callers.get(connection)?.name ?? null, targets).then((tabs) => ({ result: { ok: true, tabs } }));
+    }
     case "commands":
       return { result: commands() };
     case "methods":
@@ -267,6 +272,7 @@ function handleClose({ connection }: { connection: number }) {
   dismissSocketAsks(connection);
   launchSent.delete(connection);
   callers.delete(connection);
+  dropControlling(connection);
   dropResponder(connection);
   dropHistoryHandles(connection);
   dropLateResults(connection);
@@ -308,6 +314,7 @@ async function stop() {
   subscriptions.clear();
   launchSent.clear();
   callers.clear();
+  dropControlling();
   stopResponders();
   refreshFeed();
   await stopControlSocket();
@@ -327,6 +334,7 @@ function sync() {
     forgetTabCalls();
     noteSocketServing(false);
     void capturePageMenus(false).catch(() => undefined);
+    dropControlling();
     stopResponders();
     runWritten([...unwrittenRuns]);
   }

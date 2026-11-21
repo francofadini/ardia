@@ -4,6 +4,8 @@ import { failure, type MethodError } from "./automationMethods";
 import { obj, ownField, schemaProblem } from "./socketSchema";
 import { OpError } from "./workspaceTargets";
 
+const MAX_CONTROLLED_TARGETS = 64;
+
 export const STOPPED = "Control was turned off before Ardia made the change, so nothing changed.";
 
 export type SocketBody = { result: unknown } | { error: MethodError };
@@ -78,6 +80,13 @@ export const CORE_METHODS: MethodSpec[] = [
     properties: { protocol: { type: "integer" }, caller: { type: "object", description: "{name, app} of the program calling" } },
   }),
   core("caller", false, "Note the caller named in hello as the one running now", "{ok}"),
+  core(
+    "controlling",
+    false,
+    "The tabs this connection drives, by DevTools targetId; replaces its earlier list. Only they show the caller's mark and pill, until 3 s after they leave the list or the connection closes",
+    "{ok, tabs}",
+    obj({ targets: { type: "array", items: { type: "string" }, maxItems: MAX_CONTROLLED_TARGETS, description: "CDP page targetIds; [] for none" } }, ["targets"]),
+  ),
   core("methods", false, "Every method the socket answers, with its params schema, result and whether it changes anything", "[{name, area, mutates, description, params, result}]"),
   core("commands", false, "The menu commands run takes", "[{id, title, …}]"),
   core("windows", false, "Windows and their tabs, with each tab's DevTools target", "[{id, kind, focused, profile, profileName, tabs}]"),

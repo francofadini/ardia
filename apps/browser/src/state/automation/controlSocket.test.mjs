@@ -303,6 +303,8 @@ test("the pill names the app that runs the command, the most recent one, and for
   useCli.setState({ server: { state: "on", connections: 1, generation: 7, file: "" } });
   call("hello", undefined, { connection: old });
   assert.deepEqual(call("caller", undefined, { connection: old }).result, { ok: false });
+  assert.equal(useCliIndicator.getState().shown, false, "a CDP client that never says which tabs it drives waits out the grace");
+  t.mock.timers.tick(1500);
   assert.deepEqual(useCliIndicator.getState(), { shown: true, caller: null });
   useCli.setState({ server: { state: "on", connections: 0, generation: 8, file: "" } });
 });

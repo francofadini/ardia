@@ -37,6 +37,7 @@ export function PageOverlays({
   statusStyle,
   popovers = true,
   cliPill = false,
+  cliCovered = false,
   loadingPill = true,
 }: {
   tabId: string;
@@ -48,6 +49,7 @@ export function PageOverlays({
   statusStyle?: Animated.WithAnimatedValue<ViewStyle>;
   popovers?: boolean;
   cliPill?: boolean;
+  cliCovered?: boolean;
   loadingPill?: boolean;
 }) {
   const popover = usePages((s) => s.popover[tabId] ?? null);
@@ -66,7 +68,7 @@ export function PageOverlays({
       </Animated.View>
       <SadTab tabId={tabId} />
       {!newTabShown && loadingPill && <LoadingPill tabId={tabId} />}
-      {cliPill && <ControlPill style={statusStyle} />}
+      {!cliCovered && <ControlPill tabId={tabId} windowId={windowId} windowPill={cliPill} style={statusStyle} />}
       {!newTabShown && <PermissionPrompt tabId={tabId} {...at("prompt", PERMISSION_PROMPT_WIDTH)} />}
       <PasswordPrompt tabId={tabId} right={POPOVER_MARGIN} top={POPOVER_MARGIN} />
       <AutofillPrompt tabId={tabId} right={POPOVER_MARGIN} top={POPOVER_MARGIN} />

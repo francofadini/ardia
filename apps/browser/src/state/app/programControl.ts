@@ -16,6 +16,7 @@ import { compactControlPill, programControlOn, setProgramControl } from "./progr
 import { startCommandInstall } from "./linuxCommandInstall";
 
 const INDICATOR_HOLD_MS = 3000;
+const UNANNOUNCED_GRACE_MS = 1500;
 
 export type { ControlStatus };
 
@@ -43,11 +44,38 @@ export function noteControlCaller(caller: ControlCaller) {
   if (current?.name !== caller.name || current.app !== caller.app) useControlIndicator.setState({ caller });
 }
 
+let announcing = false;
+let unannouncedShown = false;
+let unannouncedGrace: ReturnType<typeof setTimeout> | null = null;
+
+export function noteAnnouncing(on: boolean) {
+  if (announcing === on) return;
+  announcing = on;
+  updateIndicator(useControlServer.getState());
+}
+
+function unannouncedConnections(connections: number): boolean {
+  if (connections === 0 || announcing) {
+    if (unannouncedGrace) clearTimeout(unannouncedGrace);
+    unannouncedGrace = null;
+    unannouncedShown = false;
+    return false;
+  }
+  if (!unannouncedShown && !unannouncedGrace) {
+    unannouncedGrace = setTimeout(() => {
+      unannouncedGrace = null;
+      unannouncedShown = true;
+      updateIndicator(useControlServer.getState());
+    }, UNANNOUNCED_GRACE_MS);
+  }
+  return unannouncedShown;
+}
+
 function updateIndicator({ server }: { server: ControlStatus | null }) {
   const cdpOn = server?.state === "on";
   noteCliConnections(cdpOn ? server.connections : 0);
   const on = cdpOn || socketServing;
-  const connected = on && (cdpOn ? server.connections : 0) + socketRuns > 0;
+  const connected = on && (unannouncedConnections(cdpOn ? server.connections : 0) || socketRuns > 0);
   if (connected || !on) {
     if (indicatorHide) clearTimeout(indicatorHide);
     indicatorHide = null;

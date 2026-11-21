@@ -261,6 +261,7 @@ changes it today, 🔍 read only, 🗺️ designed below, ⛔ deliberately not e
 | --- | --- | --- |
 | `hello` | no | Protocol handshake: `{ app, version, protocol, minClientProtocol }` |
 | `caller` | no | Notes the caller the command named in `hello` |
+| `controlling` | no | `{targets: [targetId…]}` (at most 64): the tabs this connection drives, replacing its earlier list. Only they show the mark (sidebar row, top-strip chip, pinned tile, in every window through the tab's family) and the "*name* is controlling this tab" pill, named by `hello`'s `caller.name` (else "ardia"). A tab keeps its mark 3 s after it leaves the list or the connection closes; turning control off clears them at once. Once any connection has announced (even `[]`), a CDP client's window-wide pill stays hidden; a CDP client nobody announces for shows it after 1.5 s, in the focused window only. Replies `{ok, tabs}`, the tab ids it found |
 | `methods` | no | This catalogue |
 | `commands` | no | The command catalogue `run` takes |
 | `windows` | no | Windows and their tabs, with each tab's DevTools target |
@@ -277,7 +278,7 @@ changes it today, 🔍 read only, 🗺️ designed below, ⛔ deliberately not e
 | Area | Read | Write |
 | --- | --- | --- |
 | tabs | `tabs.list {window?, profile?}`, `tabs.get {tab}` | `tabs.navigate {tab, url}`, `tabs.reload`, `tabs.back`, `tabs.forward`, `tabs.duplicate`, `tabs.setPinnedUrl {tab, url?}`, `tabs.returnToPinnedUrl` |
-| windows | `windows.get {window}`, `windows.geometry {window}` | `windows.create {profile?, url?, layout?}`, `windows.close`, `windows.focus`, `windows.setLayout {window, layout?, tabsShown?}`, `windows.switchProfile`, `windows.merge`, `windows.setFrame {window, frame}`, `windows.setMaximized {window, on}`, `windows.setFullScreen {window, on}` |
+| windows | `windows.get {window}`, `windows.geometry {window}` | `windows.create {profile?, url?, layout?, agent?}` (`agent: true`: the caller's own window, opened behind the user's on `about:blank` unless `url` says otherwise, answering once its tab has a DevTools target, with `targetId`; its last tab and `windows.close` close it without asking, and `windows.close` closes only the tabs opened in it, never a shared copy of the user's), `windows.close`, `windows.focus`, `windows.setLayout {window, layout?, tabsShown?}`, `windows.switchProfile`, `windows.merge`, `windows.setFrame {window, frame}`, `windows.setMaximized {window, on}`, `windows.setFullScreen {window, on}` |
 | closed | `closed.list {window?}` | `closed.restore {id, window?}`, `closed.clear {window?}` → `{cleared}`; both act on the window's profile, the last focused main window when `window` is left out, and answer `no_window` when there's none |
 | profiles | `profiles.list` | `profiles.create`, `profiles.update`, `profiles.setLook`, `profiles.reorder`, `profiles.setDefault`, `profiles.delete {profile}` (Ardia asks the user first) |
 | splits | `splits.list {window?}` | `splits.create {tabs, orientation?}`, `splits.separate`, `splits.removeTab`, `splits.resize {split, sizes}`, `splits.flip`, `splits.setOrientation` |
