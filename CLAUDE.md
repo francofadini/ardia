@@ -14,6 +14,10 @@ Keeping up with upstream (`mantrakp04/ardia`) is a merge, never a rebase: `scrip
 `--verificar` checks the engine, installs, typechecks, builds and smoke-tests. Where upstream redid one of the
 fork's changes, keep upstream's. Push and install only with Franco's OK.
 
+iCloud Passwords can't start Apple's helper from this ad hoc build, so `scripts/franco/icloud-bridge` relays it
+through a headless Google Chrome (`ardia-icloud-instalar`; how it works is in the script's `--help` header). Keep the
+engine's `chromium-apple-passwords-host-skipped.patch` as upstream has it: the bridge uses its own host name.
+
 The `ardia` command no longer lives in this repo: upstream moved it to `ardia-browser/plugins` (TypeScript, built
 with Bun). Franco's fork of it is `~/forks/ardia-plugins` (branch `franco`): it announces the tabs a session drives
 (`controlling`, the Claude mark), opens agent windows in `$ARDIA_PROFILE` (`windows.create {agent: true}`) and closes
