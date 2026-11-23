@@ -425,7 +425,7 @@ test("with Top Apps kept running, ⌘W on a regular page beside a running Top Ap
   S().updateSettings({ keepTopAppsRunning: false });
 });
 
-for (const [what, made] of [["Chrome opened", (n) => ({ chromeWindow: `cw-${n}` })], ["an agent opened", () => ({ agent: true })]]) {
+for (const [what, made, shared] of [["Chrome opened", (n) => ({ chromeWindow: `cw-${n}` }), true], ["an agent opened", () => ({ agent: true }), false]]) {
   test(`a window ${what} closes with its last tab, pinned items or not`, () => {
     S().hydrate({});
     const first = S().createWindow({ url: "https://pinned.com/" });
@@ -453,7 +453,7 @@ for (const [what, made] of [["Chrome opened", (n) => ({ chromeWindow: `cw-${n}` 
     S().newTab(first, { url: "https://mine2.com/" });
     const w = S().createWindow({ url: "https://agent.com/", ...made(3) });
     const agentTab = S().windows[w].tabIds.find((id) => S().tabs[id].url === "https://agent.com/");
-    assert.ok(viewTabIds(S(), w).some((id) => S().tabs[id].url === "https://mine.com/"), "the new window lists the shared tabs");
+    assert.equal(viewTabIds(S(), w).some((id) => S().tabs[id].url === "https://mine.com/"), shared, shared ? "the new window lists the shared tabs" : "an agent's window keeps out of sharing");
     S().closeTab(agentTab);
     assert.equal(S().windows[w], undefined, "the new window closed");
     assert.ok(S().windows[first], "the user's window stays");

@@ -7,7 +7,7 @@ import { chainOf, copyOf, hasDuplicates, keyField, profilesOf, sectionOf, signat
 import { removeTabs, withNewTab } from "./tabs";
 import type { Tab, TabGroup } from "../browser/types";
 import { pinnedGroupMembers } from "../browser/structure";
-import { isRegularWindow } from "../windows/small";
+import { isRegularWindow, sharesListIn } from "../windows/small";
 import { splitTabIds, withPaneIds } from "../splits/splits";
 import { isPeekTab, peekTabIds } from "../peek/peek";
 
@@ -19,7 +19,7 @@ export const sharesTabs = (s: Pick<BrowserState, "settings">) => !!s.settings?.s
 const listable = (t: Tab) => !t.pin && !!t.url && !t.liveItem;
 
 export function sharedListTab(s: BrowserState, t: Tab): boolean {
-  return sharesTabs(s) && listable(t) && isRegularWindow(s.windows[t.windowId]) && !inPinnedContainer(s, t.id) && !isPeekTab(s, t.id);
+  return sharesTabs(s) && listable(t) && sharesListIn(s.windows[t.windowId]) && !inPinnedContainer(s, t.id) && !isPeekTab(s, t.id);
 }
 
 function listMember(s: BrowserState): (t: Tab) => boolean {
@@ -251,7 +251,7 @@ export function mirrorTabs(s: BrowserState, prev: BrowserState): BrowserState | 
   if (!sharesTabs(s)) return null;
   const turnedOn = !sharesTabs(prev);
   if (!turnedOn && !listMayDiffer(s, prev)) return null;
-  const order = [...new Set([...s.ui.focusOrder, ...s.windowOrder])].filter((id) => isRegularWindow(s.windows[id]));
+  const order = [...new Set([...s.ui.focusOrder, ...s.windowOrder])].filter((id) => sharesListIn(s.windows[id]));
   const byProfile = new Map<string, string[]>();
   for (const id of order) for (const p of profilesOf(s, s.windows[id]!)) byProfile.set(p, [...(byProfile.get(p) ?? []), id]);
   let next = s;
@@ -268,7 +268,7 @@ export function mirrorTabs(s: BrowserState, prev: BrowserState): BrowserState | 
     const sections = new Map(ids.map((id) => [id, listSection(next, id, profileId, member, groups)]));
     const sigs = new Map(ids.map((id) => [id, signature(sections.get(id)!)]));
     if (new Set(sigs.values()).size === 1) continue;
-    const before = turnedOn ? [] : ids.filter((id) => isRegularWindow(prev.windows[id]) && profilesOf(prev, prev.windows[id]!).has(profileId));
+    const before = turnedOn ? [] : ids.filter((id) => sharesListIn(prev.windows[id]) && profilesOf(prev, prev.windows[id]!).has(profileId));
     const prevMember = listMember(prev);
     const prevGroups = listGroupsOf(prev);
     const source = before.find((id) => signature(listSection(prev, id, profileId, prevMember, prevGroups)) !== sigs.get(id));

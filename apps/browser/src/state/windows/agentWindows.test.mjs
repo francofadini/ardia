@@ -37,44 +37,42 @@ test("the agent's window records the tabs it opened, and nothing else", () => {
   S().updateSettings({ shareTabsAcrossWindows: false });
 });
 
-test("a user's tab swapped into the agent window (its shared copy activated there) survives closing the agent window", () => {
-  const { user, mine, agent } = userAndAgent({ share: true });
-  const copy = inWindow(agent, "https://mine.com/");
-  assert.ok(copy && copy !== mine);
-  S().activate(copy);
-  assert.equal(S().tabs[mine].windowId, agent, "activating the copy swaps the user's live tab into the agent window");
-  const result = closeAgentWindow(agent);
-  assert.ok(inWindow(user, "https://mine.com/"), "mine.com stays in the user's window");
-  assert.ok(inWindow(user, "https://mine2.com/"));
-  assert.equal(anywhere("https://agent.com/").length, 0, "the agent's tab closed everywhere");
-  assert.deepEqual(result, { closed: true });
-  assert.equal(S().windows[agent], undefined);
-  S().updateSettings({ shareTabsAcrossWindows: false });
-});
-
-test("the agent's own tab swapped out to the user's window still closes with the agent window", () => {
+test("with shared tabs, the agent's window lists none of the user's tabs and the user's window none of the agent's", () => {
   const { user, agent, agentTab } = userAndAgent({ share: true });
-  const copyInUser = inWindow(user, "https://agent.com/");
-  assert.ok(copyInUser && copyInUser !== agentTab);
-  S().activate(copyInUser);
-  assert.equal(S().tabs[agentTab].windowId, user, "the agent's live tab moved to the user's window");
-  assert.deepEqual(closeAgentWindow(agent), { closed: true });
-  assert.equal(anywhere("https://agent.com/").length, 0);
+  S().updateTab(agentTab, { url: "https://agent.com/next", title: "Next" });
+  const later = S().newTab(agent, { url: "https://agent2.com/", background: true });
+  assert.deepEqual(urls(agent), ["https://agent.com/next", "https://agent2.com/"]);
   assert.deepEqual(urls(user), ["https://mine.com/", "https://mine2.com/"]);
+  assert.equal(anywhere("https://agent.com/next").length, 1, "no copy of the agent's tab anywhere");
+  assert.equal(anywhere("https://mine.com/").length, 1, "no copy of the user's tab anywhere");
+  assert.ok(S().tabs[later]);
   S().updateSettings({ shareTabsAcrossWindows: false });
 });
 
-test("closing the agent's last tab after a swap asks nothing and never takes the user's tab", async () => {
+test("closing the agent's last tab asks nothing and leaves the user's tabs alone", async () => {
   const { user, mine, agent, agentTab } = userAndAgent({ share: true });
-  S().activate(inWindow(agent, "https://mine.com/"));
-  S().activate(agentTab);
   const dialogs = noDialogs();
   await closeTab(agentTab);
   dialogs.restore();
   assert.equal(dialogs.asked.length, 0);
-  assert.ok(S().tabs[mine] || inWindow(user, "https://mine.com/"), "mine.com survives");
-  assert.ok(inWindow(user, "https://mine.com/"));
+  assert.equal(S().windows[agent], undefined);
+  assert.ok(S().tabs[mine]);
+  assert.deepEqual(urls(user), ["https://mine.com/", "https://mine2.com/"]);
   assert.equal(anywhere("https://agent.com/").length, 0);
+  S().updateSettings({ shareTabsAcrossWindows: false });
+});
+
+test("a user's window closing hands its tabs to another of the user's windows, never to the agent's", () => {
+  const { user, agent } = userAndAgent({ share: true });
+  const other = S().createWindow({ url: "https://other.com/" });
+  const work = S().createProfile({ name: "Work" });
+  S().newTab(user, { url: "https://work.com/", profileId: work, background: true });
+  S().setFocusedWindow(user);
+  S().setFocusedWindow(agent);
+  S().closeWindow(user);
+  assert.equal(anywhere("https://work.com/").length, 1, "the Work tab survives");
+  assert.equal(anywhere("https://work.com/")[0].windowId, other);
+  assert.deepEqual(urls(agent), ["https://agent.com/"]);
   S().updateSettings({ shareTabsAcrossWindows: false });
 });
 

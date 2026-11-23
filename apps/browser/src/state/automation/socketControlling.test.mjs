@@ -144,7 +144,8 @@ test("windows.close on an agent window closes it without asking and leaves every
   const created = await c.ok("windows.create", { agent: true, url: "https://agent.example/" });
   const made = S().windows[created.id];
   S().newTab(made.id, { url: "https://agent2.example/", background: true });
-  assert.ok(viewTabIds(S(), made.id).some((id) => S().tabs[id].url === "https://mine.example/"), "the agent window lists the user's tabs");
+  assert.ok(!viewTabIds(S(), made.id).some((id) => S().tabs[id].url === "https://mine.example/"), "the agent window lists none of the user's tabs");
+  assert.ok(!viewTabIds(S(), windowId).some((id) => S().tabs[id].url.startsWith("https://agent")), "and the user's window none of the agent's");
   asked.length = 0;
   const closed = await c.call("windows.close", { window: made.id });
   assert.ok(!closed.error, JSON.stringify(closed.error));

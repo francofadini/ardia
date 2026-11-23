@@ -280,6 +280,29 @@ function personalAndWork() {
   return { work, a, b, x, w1 };
 }
 
+test("an agent's window keeps out of sharing: its tabs show in no other window, and it lists none of theirs", () => {
+  reset();
+  const { work, a, b } = personalAndWork();
+  S().switchProfile(a, work);
+  const agent = S().createWindow({ url: "about:blank", agent: true, background: true });
+  const [blank] = S().windows[agent].agentTabs;
+  assert.equal(S().tabs[blank].url, "about:blank");
+  S().updateTab(blank, { url: "https://example.org/", title: "Example Domain" });
+  const other = S().createWindow({ url: "https://agent2.com/", agent: true, background: true });
+  const agentUrls = new Set(["about:blank", "https://example.org/", "https://agent2.com/"]);
+  for (const w of [a, b]) {
+    const leaked = S().windows[w].tabIds.filter((id) => agentUrls.has(S().tabs[id].url));
+    assert.deepEqual(leaked, [], `the user's window ${w} holds no copy of an agent's tab`);
+  }
+  const unpinned = (w) => S().windows[w].tabIds.filter((id) => !S().tabs[id].pin).map((id) => S().tabs[id].url);
+  assert.deepEqual(unpinned(agent), ["https://example.org/"], "the agent's window lists only its own tab");
+  assert.deepEqual(unpinned(other), ["https://agent2.com/"], "and so does a second agent's");
+  assert.ok(urls(b).includes("https://x.com"), "the user's windows still share");
+  S().closeTab(blank);
+  assert.equal(S().windows[agent], undefined, "the agent's window closes with its tab");
+  assert.ok(S().windows[a] && S().windows[b]);
+});
+
 const showsOwnTab = (w, profileId) => {
   const id = shown(w);
   return !!id && S().tabs[id]?.windowId === w && S().tabs[id].profileId === profileId;

@@ -4,7 +4,7 @@ import { orderSections, syncGroupOrder } from "../groups/groups";
 import { adoptParkedPins } from "../pins/parkedPins";
 import { profilesOf } from "../pins/pinMirror";
 import { splitTabIds } from "../splits/splits";
-import { isRegularWindow } from "../windows/small";
+import { isAgentWindow, isRegularWindow } from "../windows/small";
 import { withNavigationAt } from "./pageSession";
 import { sharedListTab, sharesTabs } from "./tabShare";
 import type { BrowserWindow, Tab } from "../browser/types";
@@ -29,14 +29,14 @@ export function tabsLostWithWindow(s: BrowserState, windowId: string, keepsTabs:
 }
 
 function heirWindow(s: BrowserState, windowId: string, keepsTabs: KeepsTabs): string | undefined {
-  return [...new Set([...s.ui.focusOrder, ...s.windowOrder])].find((id) => id !== windowId && keepsTabs(s.windows[id]));
+  return [...new Set([...s.ui.focusOrder, ...s.windowOrder])].find((id) => id !== windowId && keepsTabs(s.windows[id]) && !isAgentWindow(s.windows[id]));
 }
 
 export function tabsHandedOver(s: BrowserState, windowId: string, keepsTabs: KeepsTabs = isRegularWindow): string[] {
   const w = s.windows[windowId];
   if (!sharesTabs(s) || !isRegularWindow(w) || !heirWindow(s, windowId, keepsTabs)) return [];
   const held = new Set<string>();
-  for (const o of Object.values(s.windows)) if (o.id !== windowId && keepsTabs(o)) for (const p of profilesOf(s, o)) held.add(p);
+  for (const o of Object.values(s.windows)) if (o.id !== windowId && keepsTabs(o) && !isAgentWindow(o)) for (const p of profilesOf(s, o)) held.add(p);
   return w.tabIds.filter((id) => {
     const t = s.tabs[id];
     return !!t && !held.has(t.profileId) && !!t.url && !t.liveItem && !inPinnedContainer(s, id) && !isPeekTab(s, id);
