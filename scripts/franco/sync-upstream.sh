@@ -23,9 +23,9 @@ plugins_step() {
   say "El comando ardia (ardia-plugins, rama franco)"
   [ "$(git -C "$plugins" branch --show-current)" = franco ] || die "ardia-plugins no está en la rama franco"
   [ -z "$(git -C "$plugins" status --porcelain --untracked-files=no)" ] || die "ardia-plugins tiene cambios sin commitear"
-  git -C "$plugins" fetch --quiet origin
+  git -C "$plugins" fetch --quiet upstream
   git -C "$plugins" branch -f "backup/pre-sync-$(date +%Y-%m-%d-%H%M)" franco
-  if git -C "$plugins" merge --no-edit origin/main >/tmp/sync-upstream-plugins.log 2>&1; then
+  if git -C "$plugins" merge --no-edit upstream/main >/tmp/sync-upstream-plugins.log 2>&1; then
     echo "Al día: $(git -C "$plugins" log --oneline -1)"
   else
     echo "Conflictos en ardia-plugins (resolvelos igual que en ardia):"
